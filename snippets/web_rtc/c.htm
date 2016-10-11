@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <title>WebRTC: Simple RTCDataChannel sample</title>
+  <meta charset="utf-8">
+  <!-- <link rel="stylesheet" href="main.css" type="text/css" media="all"> -->
+  <script src="adapter.js"></script>
+  <script src="c.js"></script>
+  <!-- <link href='/s/shared.css'></head> -->
+<body>
+  <h1>MDN - WebRTC: Simple RTCDataChannel sample</h1>
+  CLIENT
+  <p>This sample is an admittedly contrived example of how to use an <code>RTCDataChannel</code> to
+  exchange data between two objects on the same page. See the
+  <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Simple_RTCDataChannel_sample">
+  corresponding article</a> for details on how it works.</p>
+  
+  <div class="controlbox">
+    <button id="connectButton" name="connectButton" class="buttonleft">
+      Connect
+    </button>
+    <button id="disconnectButton" name="disconnectButton" class="buttonright" disabled>
+      Disconnect
+    </button>
+  </div>
+  
+  <div class="messagebox">
+    <label for="message">Enter a message:
+      <input type="text" name="message" id="message" placeholder="Message text" 
+              inputmode="latin" size=60 maxlength=120 disabled>
+    </label>
+    <button id="sendButton" name="sendButton" class="buttonright" disabled>
+      Send
+    </button>
+  </div>
+  <div class="messagebox" id="receivebox">
+    <p>Messages received:</p>
+  </div>
+<div class='mdn-footer'>All text content on MDN is offered under the <a href='http://creativecommons.org/licenses/by-sa/2.5/'>CC-SA-BY</a> license, version 2.5 or later. All sample code offered on this site is provided under the <a href='https://creativecommons.org/publicdomain/zero/1.0/'>CC0 (Public Domain)</a> license and may be reused or repurposed without attribution.</div></body>
+</html
