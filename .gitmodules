@@ -1,0 +1,3 @@
+[submodule "webrtc-codelab-google"]
+	path = webrtc-codelab-google
+	url = https://github.com/googlecodelabs/webrtc-web
