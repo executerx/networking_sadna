@@ -34,6 +34,7 @@ exports.handle_message = function(conn, msg) {
         data = JSON.parse(msg);
     } catch(e) {
         console.log("[*] handle_message: Could not parse JSON: " + msg);
+        conn.send(utils.pack({type: 'error', message: 'Could not parse JSON.'}));
         conn.close();
         return;
     }
@@ -49,6 +50,7 @@ exports.handle_message = function(conn, msg) {
 
         default:
             conn.send(utils.pack({type: 'error', message: 'Command not found: ' + data.type}));
+            conn.close();
             break;
     }
 }
@@ -87,7 +89,7 @@ function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
         if (conn.id == userid) return;
-        conn.send(utils.pack({type: 'state', state: state}))
+        conn.send(utils.pack({type: 'state', id: userid, state: state}))
     });
 }
 
