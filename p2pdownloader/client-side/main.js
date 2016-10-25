@@ -126,7 +126,7 @@ function initialize_blocks_data_channel(event) {
                 }
                 blocks_for_user = get_intersection(user_missing_blocks_list, blocks_offsets_in_stock);
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
-                    block_offset = Math.floor((Math.random() * blocks_for_user.length)); /* pick one at random */
+                    block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
                     log("Sending block at offset " + block_offset + " for peer");
                     this.channel.send(JSON.stringify({type:"data_block",block_offset: block_offset, block_data: file_blocks[block_offset]}));
                 }
