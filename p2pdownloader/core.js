@@ -8,26 +8,30 @@ var updates_server = null, blocks_server = null;
 exports.set_servers = function(updates, blocks) {
     updates_server = updates;
     blocks_server = blocks;
-}
+};
 
 exports.handle_open = function(conn, req) {
     userid = register(conn);
 
     users_ids = [];
-    for (var k in users) users_ids.push(k);
+    for (var k in users) {
+        if (k != conn.id) {
+            users_ids.push(k);
+        }
+    }
 
     conn.send(utils.pack({type: 'hello', id: userid, users: users_ids, block_size: BLOCK_SIZE}));
 
     broadcast_state(userid, true);
 
     console.log(`[*] New client has connected! (id=${userid})`);
-}
+};
 
 exports.handle_close = function(conn) {
     delete users[conn.id];
     broadcast_state(conn.id, false);
     console.log(`[*] Client disconnected! (id=${conn.id})`);
-}
+};
 
 exports.handle_message = function(conn, msg) {
     try {
@@ -48,12 +52,42 @@ exports.handle_message = function(conn, msg) {
             conn.send(utils.pack({type: 'block', 'params': params }));
             break;
 
+        case 'offer':
+            console.log("Sending offer from " + conn.id + " to " + data.remote_peer_id);
+            try {
+                remote_user = users[data.remote_peer_id];
+                remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id}));
+            } catch (e) {
+
+            }
+            break;
+
+        case 'answer':
+            console.log("Sending answer from " + conn.id + " to " + data.remote_peer_id);
+            try {
+                remote_user = users[data.remote_peer_id];
+                remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id}));
+            } catch (e) {
+
+            }
+            break;
+
+        case 'candidate':
+            console.log("Sending candidate from " + conn.id + " to " + data.remote_peer_id);
+            try {
+                remote_user = users[data.remote_peer_id];
+                remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id}));
+            } catch (e) {
+
+            }
+            break;
+
         default:
             conn.send(utils.pack({type: 'error', message: 'Command not found: ' + data.type}));
             conn.close();
             break;
     }
-}
+};
 
 exports.handle_block = function(conn, msg) {
     try {
@@ -68,19 +102,19 @@ exports.handle_block = function(conn, msg) {
     
     // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
     send_block(conn, block, 0, 32, 1000);
-}
+};
 
 exports.handle_block_close = function(conn) {
     if (conn.timeoutId != null)
         clearTimeout(conn.timeoutId);
-}
+};
 
 function register(conn) {
     do {
         id = utils.make_random_id();
     } while (users[id] != null);
 
-    conn.id = id
+    conn.id = id;
     users[id] = conn;
     return id;
 }
@@ -88,8 +122,9 @@ function register(conn) {
 function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
-        if (conn.id == userid) return;
-        conn.send(utils.pack({type: 'state', id: userid, state: state}))
+        if (conn.id != userid) {
+            conn.send(utils.pack({type: 'state', id: userid, state: state}))
+        }
     });
 }
 

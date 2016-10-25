@@ -9,7 +9,7 @@ var appWs = expressWs(app);
 
 app.get('/', function (req, res) {
     res.redirect('/main');
-})
+});
 
 app.use('/main', staticFile('client-side/main.htm'));
 app.use('/main.js', staticFile('client-side/main.js'));
@@ -25,7 +25,7 @@ app.ws('/updates', function(conn, req) {
             core.handle_close(conn);
         });
 
-        core.handle_open(conn, req);
+        core.handle_open(conn, req); /* should not this be in the conn.on('open') event? */
     } catch (err) {
         console.error(err);
     }
@@ -47,4 +47,4 @@ app.ws('/blocks', function(conn, req) {
 
 core.set_servers(appWs.getWss('/updates'), appWs.getWss('/blocks'));
 
-app.listen(80);
+app.listen(8081);
