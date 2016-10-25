@@ -8,7 +8,7 @@ var updates_server = null, blocks_server = null;
 function divide_file_into_blocks(file_data) {
     blocks = {};
     for (var b = 0; b < file_data.length; b += BLOCK_SIZE) {
-        blocks[b] = file_data.substr(b, b + BLOCK_SIZE);
+        blocks[b] = file_data.substr(b, BLOCK_SIZE);
     }
 
     return blocks;
@@ -24,7 +24,7 @@ function calculate_file_size(blocks) {
 }
 
 /* a dictionary of file ids and their content divided into blocks */
-var files_blocks = { 1337: divide_file_into_blocks("pasten123456") };
+var files_blocks = { 1337: divide_file_into_blocks("pasten123456pasten123456") };
 
 exports.set_servers = function(updates, blocks) {
     updates_server = updates;

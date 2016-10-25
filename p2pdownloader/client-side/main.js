@@ -19,10 +19,28 @@ var entityMap = {
     "/": '&#x2F;'
 };
 
+function sort_keys(dict) {
+    var sorted = [];
+    for(var key in dict) {
+        sorted[sorted.length] = key;
+    }
+    sorted.sort();
+
+    var tempDict = {};
+    for(var i = 0; i < sorted.length; i++) {
+        tempDict[sorted[i]] = dict[sorted[i]];
+    }
+
+    return tempDict;
+}
+
 function reconstruct_file(blocks) {
     var file = "";
+    file_blocks = sort_keys(file_blocks);
     for (var b in file_blocks) {
-        file += file_blocks[b];
+        if (undefined != file_blocks[b]) {
+            file += file_blocks[b];
+        }
     }
     return file;
 }
