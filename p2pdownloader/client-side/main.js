@@ -1,4 +1,5 @@
 var server = "localhost:8081";
+var broadcast_interval = 1000;
 
 var updates = null;
 
@@ -6,7 +7,8 @@ var id = null;
 var users = null;
 var block_size = null;
 var peers_connections = {};
-var blocks_earned = null;
+var file_blocks = {};
+var blocks_timer = null;
 
 var entityMap = {
     "&": "&amp;",
@@ -16,6 +18,51 @@ var entityMap = {
     "'": '&#39;',
     "/": '&#x2F;'
 };
+
+function reconstruct_file(blocks) {
+    var file = "";
+    for (var b in file_blocks) {
+        file += file_blocks[b];
+    }
+    return file;
+}
+
+function remaining_blocks() {
+    var remaining_offsets = [];
+    for (var b = 0; b < file_size; b += block_size) { /* isn't there a javascript one-liner for that crap? */
+        remaining_offsets.push(b);
+    }
+
+    for (var b in file_blocks) {
+        log(b);
+        remaining_offsets.splice(remaining_offsets.indexOf(parseInt(b)), 1);
+    }
+    if (remaining_offsets.length == 0) {
+        log("Received entire file! Reconstructing...");
+        var file = reconstruct_file(file_blocks);
+        log("File received:");
+        log(file);
+        clearTimeout(blocks_timer);
+    }
+
+    return remaining_offsets;
+}
+
+function broadcast_remaining_blocks() {
+    needed_blocks = remaining_blocks();
+    log("Requesting remaining blocks:" + needed_blocks);
+    if (needed_blocks.length > 0) {
+        for (var user_id in peers_connections) {
+            peer = peers_connections[user_id];
+            if (peer.local_data_channel.readyState == "open") {
+                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", blocks_list: needed_blocks}));
+            }
+        }
+        /* also, ask for the server */
+        send_message(({type: 'fresh_block', remaining_blocks: needed_blocks}));
+        setTimeout(broadcast_remaining_blocks, broadcast_interval);
+    }
+}
 
 function initialize_blocks_data_channel(event) {
     blocks_data_channel = event.channel;
@@ -29,14 +76,56 @@ function initialize_blocks_data_channel(event) {
     blocks_data_channel.onmessage = function(msg) {
         log("Receiving block message from peer.");
         try {
-            data = JSON.parse(msg);
+            data = JSON.parse(msg.data);
         } catch (e) {
             log("Malformed message sent in block data channel.");
+            return;
         }
 
         // parse data being a list of needed blocks or rather a new block
+        switch(data.type) {
+            case "blocks_request":
+                user_missing_blocks_list = data.blocks_list;
 
-    };
+                /* intersect user needed blocks list with our blocks in possesion */
+                function get_intersection(arr1, arr2) {
+                    var intr = [], o = {}, l = arr2.length, i, v;
+                    for (i = 0; i < l; i++) {
+                        o[arr2[i]] = true;
+                    }
+                    l = arr1.length;
+                    for (i = 0; i < l; i++) {
+                        v = arr1[i];
+                        if (v in o) {
+                            intr.push(v);
+                        }
+                    }
+                    return intr;
+                }
+                blocks_offsets_in_stock = [];
+                for(var b in file_blocks) { /* turn this crap into one-liner */
+                    blocks_offsets_in_stock.push(b);
+                }
+                blocks_for_user = get_intersection(user_missing_blocks_list, blocks_offsets_in_stock);
+                if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
+                    block_offset = Math.floor((Math.random() * blocks_for_user.length)); /* pick one at random */
+                    log("Sending block at offset " + block_offset + " for peer");
+                    this.channel.send(JSON.stringify({type:"data_block",block_offset: block_offset, block_data: file_blocks[block_offset]}));
+                }
+
+                break;
+            case "data_block":
+                log("Received block at offset " + data.block_offset + " from peer");;
+                block_offset = data.block_offset;
+
+                /* override existing if there's any */
+                file_blocks[block_offset] = data.block_data;
+                /* can compute if finished reading file but interval will be called anyways and will clear timer... */
+                break;
+            default:
+                break;
+        }
+    }.bind({channel: blocks_data_channel});
 
     blocks_data_channel.onclose = function() {
         log("Blocks data channel has closed.");
@@ -73,6 +162,7 @@ function create_new_peer(user_id) {
     data_channel = peer.createDataChannel("seedchannel");
     data_channel = initialize_blocks_data_channel({channel: data_channel});
     peer.ondatachannel = initialize_blocks_data_channel;
+    peer.local_data_channel = data_channel;
 
     return peer;
 }
@@ -83,6 +173,7 @@ function handle_message(data) {
             id = data.id;
             users = data.users;
             block_size = data.block_size;
+            file_size = data.file_size;
 
             for (var idx in users) {
                 user_id = users[idx];
@@ -94,7 +185,8 @@ function handle_message(data) {
                 }
             }
 
-            send_message({type: 'fresh_block'});
+            send_message({type: 'fresh_block', remaining_blocks: remaining_blocks()});
+            blocks_timer = setTimeout(broadcast_remaining_blocks, broadcast_interval);
             break;
 
         case 'state':
@@ -120,8 +212,13 @@ function handle_message(data) {
             break;
 
         case 'block':
-            params = data.params;
+            // params = data.params;
             // TODO: Connect to the 'blocks' endpoint in the server and ask for a block
+            block_data = data.block_data;
+            block_offset = data.block_offset;
+
+            /* override existing if there is */
+            file_blocks[block_offset] = block_data;
             break;
 
         case 'error':
@@ -137,7 +234,8 @@ function send_message(msg) {
 
 $(document).ready(function() {
     $("#download").on('click', function() {
-        updates = new WebSocket('ws://' + server + '/updates', ['soap', 'xmpp']);
+        // TODO: change later so it gets the fileid from the download link itself
+        updates = new WebSocket('ws://' + server + '/updates/?fileid=1337', ['soap', 'xmpp']);
 
         updates.onopen = function (event) {
             log('[**] Connected to server.');
