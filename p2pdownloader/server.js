@@ -12,6 +12,7 @@ app.get('/', function (req, res) {
 });
 
 app.use('/main', staticFile('client-side/main.htm'));
+app.use('/adapter.js', staticFile('client-side/adapter.js'));
 app.use('/main.js', staticFile('client-side/main.js'));
 app.use('/jquery.js', staticFile('client-side/jquery-3.1.1.min.js'));
 
