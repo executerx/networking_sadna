@@ -93,6 +93,8 @@ function broadcast_remaining_blocks() {
 
 function initialize_blocks_data_channel(event) {
     blocks_data_channel = event.channel;
+    blocks_data_channel.next_is_data = false;
+
     blocks_data_channel.onopen = function(ev) {
         log("[**] Blocks data channel has opened.");
     };
@@ -101,7 +103,13 @@ function initialize_blocks_data_channel(event) {
     };
 
     blocks_data_channel.onmessage = function(msg) {
-        debug = msg
+        if (this.next_is_data) {
+            log("[**] Got a data block data from a peer");
+            this.next_is_data = false;
+            file_blocks[this.next_block_offset] = msg;
+            return;
+        }
+
         try {
             data = JSON.parse(msg.data);
         } catch (e) {
@@ -138,17 +146,23 @@ function initialize_blocks_data_channel(event) {
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
                     log("L->R Sending block at offset " + block_offset + " for peer");
-                    this.channel.send(JSON.stringify({type: "data_block", block_offset: block_offset, block_data: file_blocks[block_offset]}));
+                    this.channel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
+
+                    var fileReader = new FileReader();
+                    fileReader.onload = function() {
+                        blocks_data_channel.send(this.result);
+                    };
+                    fileReader.readAsArrayBuffer(file_blocks[block_offset]);
                 }
 
                 break;
 
             case "data_block":
                 log("R->L Received block at offset " + data.block_offset + " from peer");;
-                block_offset = data.block_offset;
+                this.next_block_offset = data.block_offset;
 
                 /* override existing if there's any */
-                file_blocks[block_offset] = data.block_data;
+                this.next_is_data = true;
                 /* can compute if finished reading file but interval will be called anyways and will clear timer... */
                 break;
 
@@ -190,6 +204,8 @@ function create_new_peer(user_id) {
     peer.onicecandidate = ice_candidate_ready.bind({user_id:user_id}); /* fired up when setLocalDescriptor is called */
 
     data_channel = peer.createDataChannel("seedchannel");
+    data_channel.binaryType = "arraybuffer"; 
+
     data_channel = initialize_blocks_data_channel({channel: data_channel});
     peer.ondatachannel = initialize_blocks_data_channel;
     peer.local_data_channel = data_channel;
