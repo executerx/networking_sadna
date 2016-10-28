@@ -100,11 +100,6 @@ exports.handle_message = function(conn, msg) {
     // are peers that are downloading the same file id
     switch (data.type) {
         case 'fresh_block':
-            // TODO: Decide and send the parameters of the new block
-            //       the client will then use the other connection ('blocks')
-            //       to request the block.
-            /*params = {'paramA': 0, 'paramB': 1};
-            conn.send(utils.pack({type: 'block', 'params': params }));*/
             if (undefined == conn.file_id || !(conn.file_id in files)) {
                 console.log("[*] Bad file id");
                 return;

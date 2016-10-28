@@ -158,7 +158,7 @@ function initialize_blocks_data_channel(event) {
                 break;
 
             case "data_block":
-                log("R->L Received block at offset " + data.block_offset + " from peer");;
+                log("R->L Received block at offset " + data.block_offset + " from peer");
                 this.next_block_offset = data.block_offset;
 
                 /* override existing if there's any */
