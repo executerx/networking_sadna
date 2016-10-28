@@ -15,3 +15,8 @@ exports.pack = function (message) {
 exports.unpack = function (message) {
     return JSON.parse(message);
 };
+
+exports.readFile = function(filename) {
+    fs = require('fs');
+    return fs.readFileSync(filename);
+};

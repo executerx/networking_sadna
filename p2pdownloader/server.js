@@ -12,9 +12,11 @@ app.get('/', function (req, res) {
 });
 
 app.use('/main', staticFile('client-side/main.htm'));
+app.use('/download', staticFile('client-side/download.htm'));
+app.use('/download.js', staticFile('client-side/download.js'));
 app.use('/adapter.js', staticFile('client-side/adapter.js'));
-app.use('/main.js', staticFile('client-side/main.js'));
 app.use('/jquery.js', staticFile('client-side/jquery-3.1.1.min.js'));
+app.use('/FileSaver.js', staticFile('client-side/FileSaver.min.js'));
 
 app.ws('/updates', function(conn, req) {
     try {
@@ -34,13 +36,11 @@ app.ws('/updates', function(conn, req) {
 
 app.ws('/blocks', function(conn, req) {
     try {
-        conn.on('message', function(msg) {
-            core.handle_block(conn, msg);
-        });
-
         conn.on('close', function() {
             core.handle_block_close(conn);
         });
+        
+        core.handle_block_open(conn, req);  /* should not this be in the conn.on('open') event? */
     } catch (err) {
         console.error(err);
     }

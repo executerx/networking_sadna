@@ -1,4 +1,4 @@
-var BLOCK_SIZE = 6; /* length of "Pasten" */
+var BLOCK_SIZE = 1024;
 
 var utils = require('./utils');
 
@@ -8,7 +8,7 @@ var updates_server = null, blocks_server = null;
 function divide_file_into_blocks(file_data) {
     blocks = {};
     for (var b = 0; b < file_data.length; b += BLOCK_SIZE) {
-        blocks[b] = file_data.substr(b, BLOCK_SIZE);
+        blocks[b] = file_data.slice(b, b+BLOCK_SIZE);
     }
 
     return blocks;
@@ -24,10 +24,21 @@ function calculate_file_size(blocks) {
 }
 
 /* a dictionary of file ids and their content divided into blocks */
-var files_blocks = { 1337: divide_file_into_blocks("pasten123456pasten123456") };
+var files = {
+    1337: {
+        "filename": "blah.txt",
+        "mime_type": "text/plain",
+        "data": divide_file_into_blocks(Buffer("pasten123456pasten123456"))
+    },
+    1234: {
+        "filename": "chrome.jpg",
+        "mime_type": "image/jpeg",
+        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+    }
+};
 
 exports.set_servers = function(updates, blocks) {
-    updates_server = updates;
+    updates_server = updates; 
     blocks_server = blocks;
 };
 
@@ -39,7 +50,7 @@ exports.handle_open = function(conn, req) {
         conn.send(utils.pack({type: "error", message: "File ID missing."}));
         return;
     }
-    if (!(file_id in files_blocks)) {
+    if (!(file_id in files)) {
         console.log("[*] Requested a non existing file.");
         conn.send(utils.pack({type: "error", message: "File does not exist."}));
         return;
@@ -54,8 +65,15 @@ exports.handle_open = function(conn, req) {
     }
 
     /* figure out a better way to calculate file length */
-    conn.send(utils.pack({type: 'hello', id: userid, users: users_ids, block_size: BLOCK_SIZE,
-        file_size: calculate_file_size(files_blocks[file_id])}));
+    conn.send(utils.pack({
+        type: 'hello',
+        id: userid,
+        users: users_ids,
+        block_size: BLOCK_SIZE,
+        file_size: calculate_file_size(files[file_id].data),
+        file_name: files[file_id].filename,
+        mime_type: files[file_id].mime_type,
+    }));
 
     broadcast_state(userid, true);
 
@@ -87,18 +105,18 @@ exports.handle_message = function(conn, msg) {
             //       to request the block.
             /*params = {'paramA': 0, 'paramB': 1};
             conn.send(utils.pack({type: 'block', 'params': params }));*/
-            if (undefined == conn.file_id || !(conn.file_id in files_blocks)) {
+            if (undefined == conn.file_id || !(conn.file_id in files)) {
                 console.log("[*] Bad file id");
                 return;
             }
 
-            file_blocks = files_blocks[conn.file_id];
+            file_blocks = files[conn.file_id].data;
             user_needed_blocks = data.remaining_blocks;
             block_offset = user_needed_blocks[Math.floor(Math.random() * user_needed_blocks.length)];
             console.log("Handing block offset " + block_offset + " for peer");
             block_data = file_blocks[block_offset];
 
-            conn.send(utils.pack({type:"block", block_data: block_data, block_offset: block_offset}));
+            conn.send(utils.pack({type: "block", block_offset: block_offset, length: block_data.length}));
             break;
 
         case 'offer':
@@ -138,19 +156,20 @@ exports.handle_message = function(conn, msg) {
     }
 };
 
-exports.handle_block = function(conn, msg) {
-    try {
-        data = JSON.parse(msg);
-    } catch(e) {
-        console.log("[*] handle_block: Could not parse JSON: " + msg);
-        conn.close();
+exports.handle_block_open = function(conn, req) {
+    if (undefined == req.query.file_id || !(req.query.file_id in files) || undefined == req.query.block_offset) {
+        console.log("[*] Bad file id or block_offset");
         return;
     }
 
-    block = Array(BLOCK_SIZE+1).join('a'); // TODO: Bring a real block using the data as params
-    
-    // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
-    send_block(conn, block, 0, 32, 1000);
+    file_blocks = files[req.query.file_id].data;
+    block_data = file_blocks[req.query.block_offset];
+
+    conn.send(block_data, {binary: true, mask: false});
+    conn.close();
+
+    // // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
+    // send_block(conn, block, 0, 32, 1000);
 };
 
 exports.handle_block_close = function(conn) {
@@ -178,11 +197,11 @@ function broadcast_state(userid, state) {
     });
 }
 
-function send_block(conn, block, position, amount, delayms) {
-    conn.send(block.substr(position, amount), {binary: true, mask: false});
+// function send_block(conn, block, position, amount, delayms) {
+//     conn.send(block.slice(position, position+amount), {binary: true, mask: false});
 
-    if (position+amount < block.length)
-        conn.timeoutId = setTimeout(function() { send_block(conn, block, position+amount, amount, delayms) }, delayms);
-    else
-        conn.close();
-}
+//     if (position+amount < block.length)
+//         conn.timeoutId = setTimeout(function() { send_block(conn, block, position+amount, amount, delayms) }, delayms);
+//     else
+//         conn.close();
+// }
