@@ -1,0 +1,6 @@
+TODO
+----
+ * Simulate bandwidth in server
+ * Do not ask for a block (from server from a peer) when there is a request pending
+ * When broadcasting users list, broadcast users of the same file only
+ * Signing
