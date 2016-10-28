@@ -106,7 +106,7 @@ function initialize_blocks_data_channel(event) {
         if (this.next_is_data) {
             log("[**] Got a data block data from a peer");
             this.next_is_data = false;
-            file_blocks[this.next_block_offset] = msg;
+            file_blocks[this.next_block_offset] = new Blob([msg.data]);
             return;
         }
 
