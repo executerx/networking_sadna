@@ -108,8 +108,9 @@ function broadcast_remaining_blocks() {
     pending_blocks = get_pending_blocks();
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
 
-    log("[**] Requesting remaining blocks: " + needed_blocks);
     if (needed_blocks.length > 0) {
+        log("[**] Requesting remaining blocks: " + needed_blocks);
+
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
             if ((peer.local_data_channel.readyState == "open") && (peer.pending_block == null)) {
@@ -157,7 +158,7 @@ function initialize_blocks_data_channel(event) {
             log("[**] Got a data block data from a peer");
             this.next_is_data = false;
             file_blocks[this.next_block_offset] = new Blob([msg.data]);
-            this.peer.pending_block = null;
+            this.channel.peer.pending_block = null;
             return;
         }
 
@@ -165,6 +166,7 @@ function initialize_blocks_data_channel(event) {
             data = JSON.parse(msg.data);
         } catch (e) {
             log("[!!] Malformed message sent in block data channel.");
+            debug = msg;
             return;
         }
 
@@ -207,7 +209,7 @@ function initialize_blocks_data_channel(event) {
                     log("[!!] pending_block != null");
                 }
 
-                this.peer.pending_block = data.block_offset;
+                this.channel.peer.pending_block = data.block_offset;
 
                 /* override existing if there's any */
                 this.next_is_data = true;
@@ -288,7 +290,7 @@ function handle_message(data) {
             pending_blocks = get_pending_blocks();
             nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
             send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
-            
+
             blocks_timer = setTimeout(broadcast_remaining_blocks, broadcast_interval);
             break;
 

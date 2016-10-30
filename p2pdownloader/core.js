@@ -1,4 +1,5 @@
 var BLOCK_SIZE = 1024;
+var MAX_KBPS = 0.5;
 
 var utils = require('./utils');
 
@@ -168,8 +169,10 @@ exports.handle_block_open = function(conn, req) {
     file_blocks = files[req.query.file_id].data;
     block_data = file_blocks[req.query.block_offset];
 
-    conn.send(block_data, {binary: true, mask: false});
-    conn.close();
+    setTimeout(function() {
+        conn.send(block_data, {binary: true, mask: false});
+        conn.close();
+    }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);
 
     // // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
     // send_block(conn, block, 0, 32, 1000);
