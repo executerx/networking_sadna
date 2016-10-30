@@ -10,6 +10,7 @@ var block_size = null;
 var peers_connections = {};
 var file_blocks = {};
 var blocks_timer = null;
+var server_pending_block = null;
 
 var file_size = null;
 var mime_type = null;
@@ -75,20 +76,69 @@ function remaining_blocks() {
     return remaining_offsets;
 }
 
+function get_pending_blocks() {
+    var pending = [];
+
+    for (var user_id in peers_connections) {
+        pending_block = peers_connections[user_id].pending_block;
+        if (pending_block == null) continue;
+        if (pending.indexOf(pending_block) != -1) continue;
+        pending.push(pending_block);
+    }
+
+    if ((server_pending_block != null) && (pending.indexOf(server_pending_block) == -1))
+        pending.push(server_pending_block);
+
+    return pending;
+}
+
+function get_nonpending(remaining, pending) {
+    var nonpending_blocks = [];
+    for (var i in remaining) {
+        b = remaining[i];
+        if (pending.indexOf(b) == -1) {
+            nonpending_blocks.push(b);
+        }
+    }
+    return nonpending_blocks;
+}
+
 function broadcast_remaining_blocks() {
     needed_blocks = remaining_blocks();
+    pending_blocks = get_pending_blocks();
+    nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
+
     log("[**] Requesting remaining blocks: " + needed_blocks);
     if (needed_blocks.length > 0) {
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
-            if (peer.local_data_channel.readyState == "open") {
-                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", blocks_list: needed_blocks}));
+            if ((peer.local_data_channel.readyState == "open") && (peer.pending_block == null)) {
+                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
             }
         }
+
         /* also, ask for the server */
-        send_message(({type: 'fresh_block', remaining_blocks: needed_blocks}));
+        if (server_pending_block == null) {
+            send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
+        }
+
         setTimeout(broadcast_remaining_blocks, broadcast_interval);
     }
+}
+
+function get_intersection(arr1, arr2) {
+    var intr = [], o = {}, l = arr2.length, i, v;
+    for (i = 0; i < l; i++) {
+        o[arr2[i]] = true;
+    }
+    l = arr1.length;
+    for (i = 0; i < l; i++) {
+        v = arr1[i];
+        if (v in o) {
+            intr.push(v);
+        }
+    }
+    return intr;
 }
 
 function initialize_blocks_data_channel(event) {
@@ -107,6 +157,7 @@ function initialize_blocks_data_channel(event) {
             log("[**] Got a data block data from a peer");
             this.next_is_data = false;
             file_blocks[this.next_block_offset] = new Blob([msg.data]);
+            this.peer.pending_block = null;
             return;
         }
 
@@ -121,28 +172,19 @@ function initialize_blocks_data_channel(event) {
         switch (data.type) {
             case "blocks_request":
                 log("R->L Receiving block message from peer.");
-                user_missing_blocks_list = data.blocks_list;
+                user_nonpending_blocks_list = data.nonpending_blocks;
+                user_pending_blocks_list = data.pending_blocks;
 
-                /* intersect user needed blocks list with our blocks in possesion */
-                function get_intersection(arr1, arr2) {
-                    var intr = [], o = {}, l = arr2.length, i, v;
-                    for (i = 0; i < l; i++) {
-                        o[arr2[i]] = true;
-                    }
-                    l = arr1.length;
-                    for (i = 0; i < l; i++) {
-                        v = arr1[i];
-                        if (v in o) {
-                            intr.push(v);
-                        }
-                    }
-                    return intr;
-                }
                 blocks_offsets_in_stock = [];
-                for(var b in file_blocks) { /* turn this crap into one-liner */
+                for (var b in file_blocks) { /* turn this crap into one-liner */
                     blocks_offsets_in_stock.push(b);
                 }
-                blocks_for_user = get_intersection(user_missing_blocks_list, blocks_offsets_in_stock);
+
+                blocks_for_user = get_intersection(user_nonpending_blocks_list, blocks_offsets_in_stock);
+                if (blocks_for_user.length == 0) {
+                    blocks_for_user = get_intersection(user_pending_blocks_list, blocks_offsets_in_stock);
+                }
+
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
                     log("L->R Sending block at offset " + block_offset + " for peer");
@@ -160,6 +202,12 @@ function initialize_blocks_data_channel(event) {
             case "data_block":
                 log("R->L Received block at offset " + data.block_offset + " from peer");
                 this.next_block_offset = data.block_offset;
+
+                if (this.pending_block != null) {
+                    log("[!!] pending_block != null");
+                }
+
+                this.peer.pending_block = data.block_offset;
 
                 /* override existing if there's any */
                 this.next_is_data = true;
@@ -200,11 +248,13 @@ function ice_candidate_ready(event) {
 function create_new_peer(user_id) {
     log("[**] Initializing new peer object.");
     peer = new RTCPeerConnection();
+    peer.pending_block = null;
     peer.user_id = user_id;
     peer.onicecandidate = ice_candidate_ready.bind({user_id:user_id}); /* fired up when setLocalDescriptor is called */
 
     data_channel = peer.createDataChannel("seedchannel");
-    data_channel.binaryType = "arraybuffer"; 
+    data_channel.binaryType = "arraybuffer";
+    data_channel.peer = peer;
 
     data_channel = initialize_blocks_data_channel({channel: data_channel});
     peer.ondatachannel = initialize_blocks_data_channel;
@@ -233,7 +283,12 @@ function handle_message(data) {
                 }
             }
 
-            send_message({type: 'fresh_block', remaining_blocks: remaining_blocks()});
+
+            needed_blocks = remaining_blocks();
+            pending_blocks = get_pending_blocks();
+            nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
+            send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
+            
             blocks_timer = setTimeout(broadcast_remaining_blocks, broadcast_interval);
             break;
 
@@ -263,6 +318,8 @@ function handle_message(data) {
             block_offset = data.block_offset;
             block_length = data.length;
 
+            server_pending_block = block_offset;
+
             /* override existing if there is */
             blocks = new WebSocket('ws://' + server + '/blocks/?file_id=' + file_id + "&block_offset=" + block_offset, ['soap', 'xmpp']);
 
@@ -275,6 +332,7 @@ function handle_message(data) {
                     log('[!!] Block length is incorrect! Expected ' + block_length + ', but got ' + event.data.size);
                 }
                 file_blocks[block_offset] = event.data;
+                server_pending_block = null;
             };
 
             // updates.onclose = function (event) {
@@ -332,7 +390,9 @@ function handle_offer(offer, user_id) {
     log("[**] Receiving offer from " + user_id + " to " + id);
     if (!(user_id in peers_connections)) {
         peer = create_new_peer(user_id);
-        users.push(user_id); /* maybe remove later and think of a more clever way */
+        if (users.indexOf(user_id) == -1) {
+            log("[!!] No user is defined for the user_id!");
+        }
         peers_connections[user_id] = peer;
     }
     else {

@@ -106,8 +106,16 @@ exports.handle_message = function(conn, msg) {
             }
 
             file_blocks = files[conn.file_id].data;
-            user_needed_blocks = data.remaining_blocks;
-            block_offset = user_needed_blocks[Math.floor(Math.random() * user_needed_blocks.length)];
+            user_nonpending_blocks = data.nonpending_blocks;
+            user_pending_blocks = data.pending_blocks;
+
+            if (user_nonpending_blocks.length > 0) {
+                lst = user_nonpending_blocks;
+            } else {
+                lst = user_pending_blocks;
+            }
+
+            block_offset = lst[Math.floor(Math.random() * lst.length)];
             console.log("Handing block offset " + block_offset + " for peer");
             block_data = file_blocks[block_offset];
 

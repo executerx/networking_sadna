@@ -1,8 +1,10 @@
 TODO
 ----
  * Simulate bandwidth in server
- * Do not ask for a block (from server from a peer) when there is a request pending
- * Prefer asking a non-pending block than a pending one
+ * Finished these two, but still must make sure they work!
+ 		* Do not ask for a block (from server from a peer) when there is a request pending
+ 		* Prefer asking a non-pending block than a pending one
+ * We're getting "[!!] Malformed message sent in block data channel."
  * When broadcasting users list, broadcast users of the same file only
  * Make sure things works when peers disconnect
  * Signing
