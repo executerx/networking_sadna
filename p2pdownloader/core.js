@@ -34,7 +34,8 @@ var files = {
     1234: {
         "filename": "chrome.jpg",
         "mime_type": "image/jpeg",
-        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+        // "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+        "data": divide_file_into_blocks(utils.readFile("data/some_text_file")),
     }
 };
 
@@ -169,10 +170,11 @@ exports.handle_block_open = function(conn, req) {
     file_blocks = files[req.query.file_id].data;
     block_data = file_blocks[req.query.block_offset];
 
-    setTimeout(function() {
+    conn.send(block_data, {binary: true, mask: false});
+    /*setTimeout(function() {
         conn.send(block_data, {binary: true, mask: false});
         conn.close();
-    }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);
+    }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);*/
 
     // // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
     // send_block(conn, block, 0, 32, 1000);
@@ -197,8 +199,8 @@ function register(conn, file_id) {
 function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
-        if (conn.id != userid) {/* && conn.file_id == users[userid].file_id) { // change this later as this fails because no file_id */
-            conn.send(utils.pack({type: 'state', id: userid, state: state}))
+        if (conn.id !== undefined && conn.id != userid) {/* && conn.file_id == users[userid].file_id) { // change this later as this fails because no file_id */
+            conn.send(utils.pack({type: 'state', id: userid, state: state}));
         }
     });
 }

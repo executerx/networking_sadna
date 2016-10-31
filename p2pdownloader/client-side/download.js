@@ -154,10 +154,10 @@ function initialize_blocks_data_channel(event) {
     };
 
     blocks_data_channel.onmessage = function(msg) {
-        if (this.next_is_data) {
+        if (this.channel.next_is_data) {
             log("[**] Got a data block data from a peer");
-            this.next_is_data = false;
-            file_blocks[this.next_block_offset] = new Blob([msg.data]);
+            this.channel.next_is_data = false;
+            file_blocks[this.channel.peer.pending_block] = new Blob([msg.data]);
             this.channel.peer.pending_block = null;
             return;
         }
@@ -203,7 +203,6 @@ function initialize_blocks_data_channel(event) {
 
             case "data_block":
                 log("R->L Received block at offset " + data.block_offset + " from peer");
-                this.next_block_offset = data.block_offset;
 
                 if (this.pending_block != null) {
                     log("[!!] pending_block != null");
@@ -212,7 +211,7 @@ function initialize_blocks_data_channel(event) {
                 this.channel.peer.pending_block = data.block_offset;
 
                 /* override existing if there's any */
-                this.next_is_data = true;
+                this.channel.next_is_data = true;
                 /* can compute if finished reading file but interval will be called anyways and will clear timer... */
                 break;
 
