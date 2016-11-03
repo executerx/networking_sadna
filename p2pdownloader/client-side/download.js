@@ -16,7 +16,7 @@ var file_size = null;
 var mime_type = null;
 var filename = null;
 
-var debug = null;
+var debug = [];
 
 var entityMap = {
     "&": "&amp;",
@@ -109,11 +109,10 @@ function broadcast_remaining_blocks() {
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
 
     if (needed_blocks.length > 0) {
-        log("[**] Requesting remaining blocks: " + needed_blocks);
-
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
             if ((peer.local_data_channel.readyState == "open") && (peer.pending_block == null)) {
+                log("[**] Requesting from a peer: nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
                 peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
             }
         }
@@ -142,8 +141,9 @@ function get_intersection(arr1, arr2) {
     return intr;
 }
 
-function initialize_blocks_data_channel(event) {
+function initialize_blocks_data_channel(peer, event) {
     blocks_data_channel = event.channel;
+    blocks_data_channel.peer = peer;
     blocks_data_channel.next_is_data = false;
 
     blocks_data_channel.onopen = function(ev) {
@@ -155,7 +155,7 @@ function initialize_blocks_data_channel(event) {
 
     blocks_data_channel.onmessage = function(msg) {
         if (this.channel.next_is_data) {
-            log("[**] Got a data block data from a peer");
+            log("[**] Got block data at " + this.channel.peer.pending_block + " from a peer (id=" + this.channel.peer.user_id + ")");
             this.channel.next_is_data = false;
             file_blocks[this.channel.peer.pending_block] = new Blob([msg.data]);
             this.channel.peer.pending_block = null;
@@ -166,14 +166,14 @@ function initialize_blocks_data_channel(event) {
             data = JSON.parse(msg.data);
         } catch (e) {
             log("[!!] Malformed message sent in block data channel.");
-            debug = msg;
+            // console.log(msg.data);
+            //debug.push(msg);
             return;
         }
 
         // parse data being a list of needed blocks or rather a new block
         switch (data.type) {
             case "blocks_request":
-                log("R->L Receiving block message from peer.");
                 user_nonpending_blocks_list = data.nonpending_blocks;
                 user_pending_blocks_list = data.pending_blocks;
 
@@ -189,22 +189,26 @@ function initialize_blocks_data_channel(event) {
 
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
-                    log("L->R Sending block at offset " + block_offset + " for peer");
-                    this.channel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
-
+                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.channel.peer.user_id + ")");
+                    
+                    dchannel = this.channel;
                     var fileReader = new FileReader();
                     fileReader.onload = function() {
-                        blocks_data_channel.send(this.result);
+                        log("L->R Sent (id=" + dchannel.peer.user_id + ")");
+                        dchannel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
+                        dchannel.send(this.result);
                     };
                     fileReader.readAsArrayBuffer(file_blocks[block_offset]);
+                } else {
+                    log("L->R No block to send to peer (id=" + this.channel.peer.user_id + ")");
                 }
 
                 break;
 
             case "data_block":
-                log("R->L Received block at offset " + data.block_offset + " from peer");
+                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.channel.peer.user_id + ")");
 
-                if (this.pending_block != null) {
+                if (this.channel.peer.pending_block != null) {
                     log("[!!] pending_block != null");
                 }
 
@@ -251,14 +255,14 @@ function create_new_peer(user_id) {
     peer = new RTCPeerConnection();
     peer.pending_block = null;
     peer.user_id = user_id;
-    peer.onicecandidate = ice_candidate_ready.bind({user_id:user_id}); /* fired up when setLocalDescriptor is called */
+    peer.onicecandidate = ice_candidate_ready.bind({user_id: user_id}); /* fired up when setLocalDescriptor is called */
 
     data_channel = peer.createDataChannel("seedchannel");
     data_channel.binaryType = "arraybuffer";
     data_channel.peer = peer;
 
-    data_channel = initialize_blocks_data_channel({channel: data_channel});
-    peer.ondatachannel = initialize_blocks_data_channel;
+    data_channel = initialize_blocks_data_channel(peer, {channel: data_channel});
+    peer.ondatachannel = function(event) { initialize_blocks_data_channel(peer, event) };
     peer.local_data_channel = data_channel;
 
     return peer;

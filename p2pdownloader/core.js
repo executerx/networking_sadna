@@ -34,7 +34,11 @@ var files = {
     1234: {
         "filename": "chrome.jpg",
         "mime_type": "image/jpeg",
-        // "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+    },
+    1001: {
+        "filename": "great.py",
+        "mime_type": "application/x-python",
         "data": divide_file_into_blocks(utils.readFile("data/some_text_file")),
     }
 };
