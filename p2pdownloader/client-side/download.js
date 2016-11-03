@@ -112,7 +112,7 @@ function broadcast_remaining_blocks() {
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
             if ((peer.local_data_channel.readyState == "open") && (peer.pending_block == null)) {
-                log("[**] Requesting from a peer: nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
+                log("[**] Requesting from a peer (id=" + peer.user_id + "): nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
                 peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
             }
         }
