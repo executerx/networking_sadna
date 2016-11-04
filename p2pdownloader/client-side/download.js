@@ -16,8 +16,6 @@ var file_size = null;
 var mime_type = null;
 var filename = null;
 
-var debug = [];
-
 var entityMap = {
     "&": "&amp;",
     "<": "&lt;",
@@ -114,8 +112,7 @@ function broadcast_remaining_blocks() {
             if ((peer.local_data_channel.readyState == "open") && !peer.request_pending) {
                 log("[**] Requesting from a peer (id=" + peer.user_id + "): nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
                 peer.request_pending = true;
-                //debug.push([peer, true]);
-                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks, user_id: my_user_id}));
+                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
             }
         }
 
@@ -170,7 +167,6 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             this.peer.next_is_data = false;
             this.peer.pending_block = null;
             this.peer.request_pending = false;
-            //debug.push([this.peer, false]);
             return;
         }
 
@@ -178,20 +174,12 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             data = JSON.parse(msg.data);
         } catch (e) {
             log("[!!] Malformed message sent in block data channel.");
-            // console.log(msg.data);
-            //debug.push(msg);
             return;
         }
 
         // parse data being a list of needed blocks or rather a new block
         switch (data.type) {
             case "blocks_request":
-                if (this.peer != peers_connections[data.user_id]) {
-                    log("[!!] PEER CHANGED at blocks_request!");
-                    debug.push([this.peer, msg, this]);
-                    // this.peer = peers_connections[data.user_id];
-                }
-
                 user_nonpending_blocks_list = data.nonpending_blocks;
                 user_pending_blocks_list = data.pending_blocks;
 
@@ -207,7 +195,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
 
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
-                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ", " + data.user_id + ")");
+                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ")");
                     
                     var fileReader = new FileReader();
                     fileReader.peer = this.peer;
@@ -215,7 +203,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                     fileReader.channel = this;
                     fileReader.block_offset = block_offset;
                     fileReader.onload = function() {
-                        log("L->R Sent (id=" + this.peer.user_id + ", " + this.data.user_id + ")");
+                        log("L->R Sent (id=" + this.peer.user_id + ")");
                         this.channel.send(JSON.stringify({type: "data_block", block_offset: this.block_offset}));
                         this.channel.send(this.result);
                     };
@@ -249,7 +237,6 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                 }
 
                 this.peer.request_pending = false;
-                //debug.push([peer, false]);
                 break;
 
             default:
@@ -337,23 +324,14 @@ function handle_message(data) {
             break;
 
         case 'offer':
-            if (my_user_id != data.your_user_id) {
-                log('[!!] my_user_id != data.your_user_id');
-            }
             handle_offer(data.offer, data.remote_peer_id);
             break;
 
         case 'answer':
-            if (my_user_id != data.your_user_id) {
-                log('[!!] my_user_id != data.your_user_id');
-            }
             handle_answer(data.answer, data.remote_peer_id);
             break;
 
         case 'candidate':
-            if (my_user_id != data.your_user_id) {
-                log('[!!] my_user_id != data.your_user_id');
-            }
             handle_candidate(data.candidate, data.remote_peer_id);
             break;
 

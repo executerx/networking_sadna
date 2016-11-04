@@ -125,7 +125,7 @@ exports.handle_message = function(conn, msg) {
 
             if (!(block_offset in file_blocks)) {
                 console.log("Peer asked for invalid block_offset");
-                conn.send(utils.pack({type: 'error', message: 'Invalid block_offset'}));
+                conn.send(utils.pack({type: 'error', message: 'Invalid block_offset '}));
                 conn.close();
             }
 
@@ -136,30 +136,30 @@ exports.handle_message = function(conn, msg) {
             break;
 
         case 'offer':
-            console.log("Sending offer from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
+            console.log("Sending offer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
+                remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending offer");
             }
             break;
 
         case 'answer':
-            console.log("Sending answer from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
+            console.log("Sending answer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
+                remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending answer");
             }
             break;
 
         case 'candidate':
-            console.log("Sending candidate from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
+            console.log("Sending candidate from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
+                remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending candidate");
             }
