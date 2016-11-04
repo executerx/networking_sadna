@@ -337,14 +337,23 @@ function handle_message(data) {
             break;
 
         case 'offer':
+            if (my_user_id != data.your_user_id) {
+                log('[!!] my_user_id != data.your_user_id');
+            }
             handle_offer(data.offer, data.remote_peer_id);
             break;
 
         case 'answer':
+            if (my_user_id != data.your_user_id) {
+                log('[!!] my_user_id != data.your_user_id');
+            }
             handle_answer(data.answer, data.remote_peer_id);
             break;
 
         case 'candidate':
+            if (my_user_id != data.your_user_id) {
+                log('[!!] my_user_id != data.your_user_id');
+            }
             handle_candidate(data.candidate, data.remote_peer_id);
             break;
 
@@ -363,11 +372,11 @@ function handle_message(data) {
 
             blocks.onmessage = function (event) {
                 if (event.data.size != block_length) {
-                    log('[!!] Block length is incorrect! Expected ' + block_length + ', but got ' + event.data.size);
+                    log('[!!] Block length is incorrect! Expected ' + this.block_length + ', but got ' + event.data.size);
                 }
-                file_blocks[block_offset] = event.data;
+                file_blocks[this.block_offset] = event.data;
                 server_pending_block = null;
-            };
+            }.bind({ block_length: block_length, block_offset: block_offset});
 
             // updates.onclose = function (event) {
             //     log('[**] Disconnected.');
@@ -412,9 +421,9 @@ function send_offer(peer, user_id) {
     log("[**] Sending offer from " + my_user_id + " to  " + user_id);
     peer.user_id = user_id;
     peer.createOffer(function (offer) {
-            peer.setLocalDescription(offer);
-            send_message({type: "offer", offer: offer, remote_peer_id: peer.user_id, id: my_user_id});
-        }, function(error) {
+            this.peer.setLocalDescription(offer);
+            send_message({type: "offer", offer: offer, remote_peer_id: this.peer.user_id, id: my_user_id});
+        }.bind({peer: peer}), function(error) {
             alert("Could not create offer");
         }
     );
@@ -435,9 +444,9 @@ function handle_offer(offer, user_id) {
     peer.setRemoteDescription(new RTCSessionDescription(offer));
 
     peer.createAnswer(function (answer) {
-        peer.setLocalDescription(answer);
-        send_message({type:"answer", answer: answer, remote_peer_id: peer.user_id, id: my_user_id});
-        }, function (error) {
+        this.peer.setLocalDescription(answer);
+        send_message({ type:"answer", answer: answer, remote_peer_id: this.peer.user_id, id: my_user_id });
+        }.bind({peer: peer}), function (error) {
             alert("Error creating answer");
         }
     );

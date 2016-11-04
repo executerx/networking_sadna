@@ -21,12 +21,12 @@ app.use('/FileSaver.js', staticFile('client-side/FileSaver.min.js'));
 app.ws('/updates', function(conn, req) {
     try {
         conn.on('message', function(msg) {
-            core.handle_message(conn, msg);
-        });
+            core.handle_message(this.conn, msg);
+        }.bind({ conn: conn }));
 
         conn.on('close', function() {
-            core.handle_close(conn);
-        });
+            core.handle_close(this.conn);
+        }.bind({ conn: conn }));
 
         core.handle_open(conn, req); /* should not this be in the conn.on('open') event? */
     } catch (err) {
@@ -37,8 +37,8 @@ app.ws('/updates', function(conn, req) {
 app.ws('/blocks', function(conn, req) {
     try {
         conn.on('close', function() {
-            core.handle_block_close(conn);
-        });
+            core.handle_block_close(this.conn);
+        }.bind({ conn: conn }));
         
         core.handle_block_open(conn, req);  /* should not this be in the conn.on('open') event? */
     } catch (err) {

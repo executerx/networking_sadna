@@ -122,6 +122,13 @@ exports.handle_message = function(conn, msg) {
             }
 
             block_offset = lst[Math.floor(Math.random() * lst.length)];
+
+            if (!(block_offset in file_blocks)) {
+                console.log("Peer asked for invalid block_offset");
+                conn.send(utils.pack({type: 'error', message: 'Invalid block_offset'}));
+                conn.close();
+            }
+
             console.log("Handing block offset " + block_offset + " for peer");
             block_data = file_blocks[block_offset];
 
@@ -132,7 +139,7 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending offer from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id}));
+                remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
             } catch (e) {
                 console.log("Error sending offer");
             }
@@ -142,7 +149,7 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending answer from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id}));
+                remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
             } catch (e) {
                 console.log("Error sending answer");
             }
@@ -152,7 +159,7 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending candidate from " + conn.id + " " + data.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
-                remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id}));
+                remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id, your_user_id: data.remote_peer_id}));
             } catch (e) {
                 console.log("Error sending candidate");
             }
@@ -203,8 +210,8 @@ function register(conn, file_id) {
 function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
-        if (conn.id !== undefined && conn.id != userid) {/* && conn.file_id == users[userid].file_id) { // change this later as this fails because no file_id */
-            conn.send(utils.pack({type: 'state', id: userid, state: state}));
+        if (conn.id !== undefined && conn.id != this.userid) {/* && conn.file_id == users[userid].file_id) { // change this later as this fails because no file_id */
+            conn.send(utils.pack({type: 'state', id: this.userid, state: this.state}));
         }
-    });
+    }.bind({userid: userid, state: state}));
 }
