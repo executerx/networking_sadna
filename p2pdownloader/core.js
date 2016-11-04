@@ -172,26 +172,44 @@ exports.handle_message = function(conn, msg) {
     }
 };
 
-exports.handle_block_open = function(conn, req) {
-    if (undefined == req.query.file_id || !(req.query.file_id in files) || undefined == req.query.block_offset) {
-        console.log("[*] Bad file id or block_offset");
+exports.handle_blocks_message = function(conn, msg) {
+    try {
+        data = JSON.parse(msg);
+    } catch(e) {
+        console.log("[*] handle_message: Could not parse JSON: " + msg);
+        conn.send(utils.pack({type: 'error', message: 'Could not parse JSON.'}));
+        conn.close();
         return;
     }
 
-    file_blocks = files[req.query.file_id].data;
-    block_data = file_blocks[req.query.block_offset];
+    switch (data.type) {
+        case 'block':
+            if (!(data.file_id in files) || !(data.block_offset in files[data.file_id].data)) {
+                console.log("[*] Bad file id or offset");
+                conn.send(utils.pack({type: 'error', message: 'Bad file id or offset'}));
+                conn.close();
+                return;
+            }
 
-    conn.send(block_data, {binary: true, mask: false});
-    /*setTimeout(function() {
-        conn.send(block_data, {binary: true, mask: false});
-        conn.close();
-    }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);*/
+            file_blocks = files[data.file_id].data;
+            block_data = file_blocks[data.block_offset];
 
-    // // Simulating low bandwidth: 1024 bytes at 32b/s takes 32 seconds
-    // send_block(conn, block, 0, 32, 1000);
-};
+            conn.send(block_data, {binary: true, mask: false});
+            /*setTimeout(function() {
+                conn.send(block_data, {binary: true, mask: false});
+                conn.close();
+            }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);*/
+            break;
 
-exports.handle_block_close = function(conn) {
+        default:
+            conn.send(utils.pack({type: 'error', message: 'Command not found: ' + data.type}));
+            conn.close();
+            break;
+    }
+}
+
+
+exports.handle_blocks_close = function(conn) {
     if (conn.timeoutId != null)
         clearTimeout(conn.timeoutId);
 };

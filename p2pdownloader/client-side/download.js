@@ -2,6 +2,7 @@ var server = "localhost:8081";
 var broadcast_interval = 1000;
 
 var updates = null;
+var blocks = null;
 
 var file_id = location.search.substr(1);
 var my_user_id = null;
@@ -367,29 +368,10 @@ function handle_message(data) {
             block_length = data.length;
 
             server_pending_block = block_offset;
+            server_pending_block_length = block_length;
 
             /* override existing if there is */
-            blocks = new WebSocket('ws://' + server + '/blocks/?file_id=' + file_id + "&block_offset=" + block_offset, ['soap', 'xmpp']);
-
-            // blocks.onopen = function (event) {
-            //     log('[**] Connected to server.');
-            // };
-
-            blocks.onmessage = function (event) {
-                if (event.data.size != block_length) {
-                    log('[!!] Block length is incorrect! Expected ' + this.block_length + ', but got ' + event.data.size);
-                }
-                file_blocks[this.block_offset] = event.data;
-                server_pending_block = null;
-
-                if (!check_if_finished()) {
-                    ask_for_block(null);
-                }
-            }.bind({ block_length: block_length, block_offset: block_offset});
-
-            // updates.onclose = function (event) {
-            //     log('[**] Disconnected.');
-            // };
+            blocks.send(JSON.stringify({type: "block", file_id: file_id, block_offset: block_offset}));
             
             break;
 
@@ -422,6 +404,20 @@ $(document).ready(function() {
 
         updates.onclose = function (event) {
             log('[**] Disconnected.');
+        };
+
+        blocks = new WebSocket('ws://' + server + '/blocks', ['soap', 'xmpp']);
+
+        blocks.onmessage = function (event) {
+            if (event.data.size != server_pending_block_length) {
+                log('[!!] Block length is incorrect! Expected ' + this.block_length + ', but got ' + event.data.size);
+            }
+            file_blocks[server_pending_block] = event.data;
+            server_pending_block = null;
+
+            if (!check_if_finished()) {
+                ask_for_block(null);
+            }
         };
     });
 });

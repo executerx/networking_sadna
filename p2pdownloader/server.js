@@ -39,8 +39,10 @@ app.ws('/blocks', function(conn, req) {
         conn.on('close', function() {
             core.handle_block_close(this.conn);
         }.bind({ conn: conn }));
-        
-        core.handle_block_open(conn, req);  /* should not this be in the conn.on('open') event? */
+
+        conn.on('message', function(msg) {
+            core.handle_blocks_message(this.conn, msg);
+        }.bind({ conn: conn }));
     } catch (err) {
         console.error(err);
     }
