@@ -12,6 +12,9 @@ var file_blocks = {};
 var blocks_timer = null;
 var server_pending_block = null;
 
+var downloaded = false;
+var broadcast_timeout = null;
+
 var file_size = null;
 var mime_type = null;
 var filename = null;
@@ -65,13 +68,19 @@ function remaining_blocks() {
         remaining_offsets.splice(remaining_offsets.indexOf(parseInt(b)), 1);
     }
 
-    if (remaining_offsets.length == 0) {
-        log("[**] Received entire file! Reconstructing...");
-        saveToDisk(reconstruct_file(file_blocks), filename, mime_type);
-        clearTimeout(blocks_timer);
-    }
-
     return remaining_offsets;
+}
+
+function check_if_finished() {
+    if (remaining_blocks().length == 0) {
+        if (!downloaded) {
+            log("[**] Received entire file! Reconstructing...");
+            saveToDisk(reconstruct_file(file_blocks), filename, mime_type);
+            downloaded = true;
+        }
+        return true;
+    }
+    return false;
 }
 
 function get_pending_blocks() {
@@ -102,26 +111,45 @@ function get_nonpending(remaining, pending) {
 }
 
 function broadcast_remaining_blocks() {
+    if (broadcast_timeout != null) {
+        clearTimeout(broadcast_timeout);
+        broadcast_timeout = null;
+    }
+    broadcast_remaining_blocks_timer();
+}
+
+function broadcast_remaining_blocks_timer() {
     needed_blocks = remaining_blocks();
     pending_blocks = get_pending_blocks();
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
 
     if (needed_blocks.length > 0) {
+        /* ask for the server */
+        ask_for_block(null);
+
+        /* and also the peers */
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
-            if ((peer.local_data_channel.readyState == "open") && !peer.request_pending) {
-                log("[**] Requesting from a peer (id=" + peer.user_id + "): nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
-                peer.request_pending = true;
-                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
-            }
+            ask_for_block(peer);
         }
 
-        /* also, ask for the server */
+        broadcast_timeout = setTimeout(broadcast_remaining_blocks_timer, broadcast_interval);
+    }
+}
+
+function ask_for_block(peer) {
+    if (peer == null) {
+        /* Server */
         if (server_pending_block == null) {
             send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
         }
-
-        setTimeout(broadcast_remaining_blocks, broadcast_interval);
+    } else {
+        /* Peer */
+        if ((peer.local_data_channel.readyState == "open") && !peer.request_pending) {
+            log("[**] Requesting from a peer (id=" + peer.user_id + "): nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
+            peer.request_pending = true;
+            peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
+        }
     }
 }
 
@@ -167,6 +195,11 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             this.peer.next_is_data = false;
             this.peer.pending_block = null;
             this.peer.request_pending = false;
+
+            if (!check_if_finished()) {
+                ask_for_block(this.peer);
+            }
+
             return;
         }
 
@@ -304,13 +337,7 @@ function handle_message(data) {
                 }
             }
 
-
-            needed_blocks = remaining_blocks();
-            pending_blocks = get_pending_blocks();
-            nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
-            send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
-
-            blocks_timer = setTimeout(broadcast_remaining_blocks, broadcast_interval);
+            broadcast_remaining_blocks();
             break;
 
         case 'state':
@@ -354,6 +381,10 @@ function handle_message(data) {
                 }
                 file_blocks[this.block_offset] = event.data;
                 server_pending_block = null;
+
+                if (!check_if_finished()) {
+                    ask_for_block(null);
+                }
             }.bind({ block_length: block_length, block_offset: block_offset});
 
             // updates.onclose = function (event) {
