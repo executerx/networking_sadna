@@ -208,12 +208,3 @@ function broadcast_state(userid, state) {
         }
     });
 }
-
-// function send_block(conn, block, position, amount, delayms) {
-//     conn.send(block.slice(position, position+amount), {binary: true, mask: false});
-
-//     if (position+amount < block.length)
-//         conn.timeoutId = setTimeout(function() { send_block(conn, block, position+amount, amount, delayms) }, delayms);
-//     else
-//         conn.close();
-// }

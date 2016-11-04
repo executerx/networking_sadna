@@ -4,7 +4,7 @@ var broadcast_interval = 1000;
 var updates = null;
 
 var file_id = location.search.substr(1);
-var id = null;
+var my_user_id = null;
 var users = null;
 var block_size = null;
 var peers_connections = {};
@@ -111,9 +111,11 @@ function broadcast_remaining_blocks() {
     if (needed_blocks.length > 0) {
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
-            if ((peer.local_data_channel.readyState == "open") && (peer.pending_block == null)) {
+            if ((peer.local_data_channel.readyState == "open") && !peer.request_pending) {
                 log("[**] Requesting from a peer (id=" + peer.user_id + "): nonpending: " + nonpending_blocks + " pending: " + pending_blocks);
-                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
+                peer.request_pending = true;
+                //debug.push([peer, true]);
+                peer.local_data_channel.send(JSON.stringify({type: "blocks_request", nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks, user_id: my_user_id}));
             }
         }
 
@@ -141,10 +143,17 @@ function get_intersection(arr1, arr2) {
     return intr;
 }
 
-function initialize_blocks_data_channel(peer, event) {
-    blocks_data_channel = event.channel;
+function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
     blocks_data_channel.peer = peer;
-    blocks_data_channel.next_is_data = false;
+    
+    peer.request_pending = false;
+    peer.next_is_data = false;
+
+    if (is_local) {
+        peer.local_data_channel = blocks_data_channel;
+    } else {
+        peer.remote_data_channel = blocks_data_channel;
+    }
 
     blocks_data_channel.onopen = function(ev) {
         log("[**] Blocks data channel has opened.");
@@ -154,11 +163,14 @@ function initialize_blocks_data_channel(peer, event) {
     };
 
     blocks_data_channel.onmessage = function(msg) {
-        if (this.channel.next_is_data) {
-            log("[**] Got block data at " + this.channel.peer.pending_block + " from a peer (id=" + this.channel.peer.user_id + ")");
-            this.channel.next_is_data = false;
-            file_blocks[this.channel.peer.pending_block] = new Blob([msg.data]);
-            this.channel.peer.pending_block = null;
+        if (peer.next_is_data) {
+            log("[**] Got block data at " + peer.pending_block + " from a peer (id=" + peer.user_id + ")");
+            file_blocks[peer.pending_block] = new Blob([msg.data]);
+
+            peer.next_is_data = false;
+            peer.pending_block = null;
+            peer.request_pending = false;
+            //debug.push([peer, false]);
             return;
         }
 
@@ -189,40 +201,52 @@ function initialize_blocks_data_channel(peer, event) {
 
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
-                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.channel.peer.user_id + ")");
+                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + peer.user_id + ")");
+                    debug.push([peer, msg, blocks_data_channel]);
                     
-                    dchannel = this.channel;
                     var fileReader = new FileReader();
                     fileReader.onload = function() {
-                        log("L->R Sent (id=" + dchannel.peer.user_id + ")");
-                        dchannel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
-                        dchannel.send(this.result);
+                        log("L->R Sent (id=" + peer.user_id + ", " + data.user_id + ")");
+                        blocks_data_channel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
+                        blocks_data_channel.send(this.result);
                     };
                     fileReader.readAsArrayBuffer(file_blocks[block_offset]);
                 } else {
-                    log("L->R No block to send to peer (id=" + this.channel.peer.user_id + ")");
+                    log("L->R No block to send to peer (id=" + peer.user_id + ")");
+                    blocks_data_channel.send(JSON.stringify({type: "no_data_block"}));
                 }
 
                 break;
 
             case "data_block":
-                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.channel.peer.user_id + ")");
+                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + peer.user_id + ")");
 
-                if (this.channel.peer.pending_block != null) {
+                if (peer.pending_block != null) {
                     log("[!!] pending_block != null");
                 }
 
-                this.channel.peer.pending_block = data.block_offset;
+                peer.pending_block = data.block_offset;
 
                 /* override existing if there's any */
-                this.channel.next_is_data = true;
+                peer.next_is_data = true;
                 /* can compute if finished reading file but interval will be called anyways and will clear timer... */
+                break;
+
+            case "no_data_block":
+                log("[**] No data block (id=" + peer.user_id + ")");
+
+                if (!peer.request_pending) {
+                    log("[!!] !request_pending at no_data_block");
+                }
+
+                peer.request_pending = false;
+                //debug.push([peer, false]);
                 break;
 
             default:
                 break;
         }
-    }.bind({channel: blocks_data_channel});
+    };
 
     blocks_data_channel.onclose = function() {
         log("[**] Blocks data channel has closed.");
@@ -230,9 +254,6 @@ function initialize_blocks_data_channel(peer, event) {
 
     return blocks_data_channel;
 }
-/*var reader = new window.FileReader();
-reader.onload = send_data_to_peer;
-reader.readAsText(file);*/
 
 function escapeHtml(string) {
     return String(string).replace(/[&<>"'\/]/g, function (s) {
@@ -261,9 +282,8 @@ function create_new_peer(user_id) {
     data_channel.binaryType = "arraybuffer";
     data_channel.peer = peer;
 
-    data_channel = initialize_blocks_data_channel(peer, {channel: data_channel});
-    peer.ondatachannel = function(event) { initialize_blocks_data_channel(peer, event) };
-    peer.local_data_channel = data_channel;
+    data_channel = initialize_blocks_data_channel(peer, true, data_channel);
+    peer.ondatachannel = function(event) { initialize_blocks_data_channel(peer, false, event.channel) };
 
     return peer;
 }
@@ -271,7 +291,7 @@ function create_new_peer(user_id) {
 function handle_message(data) {
     switch (data.type) {
         case 'hello':
-            id = data.id;
+            my_user_id = data.id;
             users = data.users;
             block_size = data.block_size;
             file_size = data.file_size;
@@ -280,7 +300,7 @@ function handle_message(data) {
 
             for (var idx in users) {
                 user_id = users[idx];
-                if (user_id != id) {
+                if (user_id != my_user_id) {
                     peer = create_new_peer(user_id);
                     peers_connections[user_id] = peer;
 
@@ -380,7 +400,7 @@ $(document).ready(function() {
 });
 
 function send_offer(peer, user_id) {
-    log("[**] Sending offer from " + id + " to  " + user_id);
+    log("[**] Sending offer from " + my_user_id + " to  " + user_id);
     peer.user_id = user_id;
     peer.createOffer(function (offer) {
             peer.setLocalDescription(offer);
@@ -392,7 +412,7 @@ function send_offer(peer, user_id) {
 }
 
 function handle_offer(offer, user_id) {
-    log("[**] Receiving offer from " + user_id + " to " + id);
+    log("[**] Receiving offer from " + user_id + " to " + my_user_id);
     if (!(user_id in peers_connections)) {
         peer = create_new_peer(user_id);
         if (users.indexOf(user_id) == -1) {
@@ -415,7 +435,7 @@ function handle_offer(offer, user_id) {
 }
 
 function handle_answer(answer, user_id) {
-    log("[**] Receiving answer from " + user_id + " to " + id);
+    log("[**] Receiving answer from " + user_id + " to " + my_user_id);
     if (!(user_id in peers_connections)) {
         log("No peer associated with answer of user id: ", user_id);
         return;
