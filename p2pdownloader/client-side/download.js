@@ -13,6 +13,7 @@ var file_blocks = {};
 var blocks_timer = null;
 var server_pending_block = null;
 var server_request_pending = false;
+var blocks_origins = {};
 
 var downloaded = false;
 var broadcast_timeout = null;
@@ -62,7 +63,7 @@ function saveToDisk(blobs, file_name, mime_type) {
     saveAs(blob, file_name);
 }
 
-function remaining_blocks() {
+function get_remaining_blocks() {
     var remaining_offsets = [];
     for (var b = 0; b < file_size; b += block_size) { /* isn't there a javascript one-liner for that crap? */
         remaining_offsets.push(b);
@@ -76,7 +77,26 @@ function remaining_blocks() {
 }
 
 function check_if_finished() {
-    if (remaining_blocks().length == 0) {
+    remaining_blocks = get_remaining_blocks();
+    pending_blocks = get_pending_blocks(remaining_blocks);
+    nonpending_blocks = get_nonpending(remaining_blocks, pending_blocks);
+
+    progress = "";
+    for (var b = 0; b < file_size; b += block_size) {
+        if (!(b in blocks_origins)) {
+            cls = "progress_box_no";
+        } else if (blocks_origins[b] == "server") {
+            cls = "progress_box_server";
+        } else if (blocks_origins[b] == "peer") {
+            cls = "progress_box_peer";
+        } else {
+            log("[!!] Unexpected origin");
+        }
+        progress += '<div class="progress_box ' + cls + '"></div>';
+    }
+    $("#progress").html(progress);
+
+    if (remaining_blocks.length == 0) {
         if (!downloaded) {
             log("[**] Received entire file! Reconstructing...");
             saveToDisk(reconstruct_file(file_blocks), filename, mime_type);
@@ -84,6 +104,7 @@ function check_if_finished() {
         }
         return true;
     }
+
     return false;
 }
 
@@ -98,7 +119,7 @@ function get_pending_blocks(remaining_blocks) {
         pending.push(pending_block);
     }
 
-    if ((server_pending_block != null) && (pending.indexOf(server_pending_block) == -1) && (remaining_blocks.indexOf(pending_block) != -1))
+    if ((server_pending_block != null) && (pending.indexOf(server_pending_block) == -1) && (remaining_blocks.indexOf(server_pending_block) != -1))
         pending.push(server_pending_block);
 
     return pending;
@@ -124,7 +145,7 @@ function broadcast_remaining_blocks() {
 }
 
 function broadcast_remaining_blocks_timer() {
-    needed_blocks = remaining_blocks();
+    needed_blocks = get_remaining_blocks();
     pending_blocks = get_pending_blocks(needed_blocks);
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
 
@@ -143,7 +164,7 @@ function broadcast_remaining_blocks_timer() {
 }
 
 function ask_for_block(peer) {
-    needed_blocks = remaining_blocks();
+    needed_blocks = get_remaining_blocks();
     pending_blocks = get_pending_blocks(needed_blocks);
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
     ask_for_block_with_lists(peer, needed_blocks, pending_blocks, nonpending_blocks);
@@ -205,11 +226,14 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
             file_blocks[this.peer.pending_block] = new Blob([msg.data]);
 
+            if (!(this.peer.pending_block in blocks_origins)) {
+                blocks_origins[this.peer.pending_block] = "peer";
+            }
+
             this.peer.next_is_data = false;
             this.peer.pending_block = null;
             this.peer.request_pending = false;
 
-            log(remaining_blocks());
             if (!check_if_finished()) {
                 ask_for_block(this.peer);
             }
@@ -351,6 +375,8 @@ function handle_message(data) {
                 }
             }
 
+            check_if_finished();
+
             broadcast_remaining_blocks();
             break;
 
@@ -409,27 +435,32 @@ function send_message(msg) {
 }
 
 $(document).ready(function() {
-    $("#download").on('click', function() {
-        blocks = new WebSocket('ws://' + server + '/blocks', ['soap', 'xmpp']);
+    //$("#download").on('click', function() {
+    blocks = new WebSocket('ws://' + server + '/blocks', ['soap', 'xmpp']);
 
-        blocks.onopen = function (event) {
-            initialize_updates_ws();
+    blocks.onopen = function (event) {
+        initialize_updates_ws();
+    }
+
+    blocks.onmessage = function (event) {
+        if (event.data.size != server_pending_block_length) {
+            log('[!!] Block length is incorrect! Expected ' + server_pending_block_length + ', but got ' + event.data.size);
+            debug.push(event.data);
         }
 
-        blocks.onmessage = function (event) {
-            if (event.data.size != server_pending_block_length) {
-                log('[!!] Block length is incorrect! Expected ' + server_pending_block_length + ', but got ' + event.data.size);
-                debug.push(event.data);
-            }
-            file_blocks[server_pending_block] = event.data;
-            server_pending_block = null;
-            server_request_pending = false;
+        file_blocks[server_pending_block] = event.data;
 
-            if (!check_if_finished()) {
-                ask_for_block(null);
-            }
-        };
-    });
+        if (!(server_pending_block in blocks_origins)) {
+            blocks_origins[server_pending_block] = "server";
+        }
+        server_pending_block = null;
+        server_request_pending = false;
+
+        if (!check_if_finished()) {
+            ask_for_block(null);
+        }
+    };
+    //});
 });
 
 function initialize_updates_ws() {

@@ -196,7 +196,7 @@ exports.handle_blocks_message = function(conn, msg) {
 
             setTimeout(function() {
                 conn.send(this.block_data, {binary: true, mask: false});
-            }.bind({block_data: block_data}), 100); // (block_data.length / 1024) * (1/MAX_KBPS) * 1000
+            }.bind({block_data: block_data}), (block_data.length / 1024) * (1/MAX_KBPS) * 1000);
             break;
 
         default:
