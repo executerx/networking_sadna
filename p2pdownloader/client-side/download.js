@@ -292,7 +292,7 @@ function create_new_peer(user_id) {
     data_channel.peer = peer;
     initialize_blocks_data_channel(peer, true, data_channel);
 
-    peer.ondatachannel = function(event) { initialize_blocks_data_channel(peer, false, event.channel) };
+    peer.ondatachannel = function(event) { initialize_blocks_data_channel(this.peer, false, event.channel)}.bind({peer: peer});
 
     return peer;
 }
