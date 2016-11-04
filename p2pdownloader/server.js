@@ -37,7 +37,7 @@ app.ws('/updates', function(conn, req) {
 app.ws('/blocks', function(conn, req) {
     try {
         conn.on('close', function() {
-            core.handle_block_close(this.conn);
+            core.handle_blocks_close(this.conn);
         }.bind({ conn: conn }));
 
         conn.on('message', function(msg) {

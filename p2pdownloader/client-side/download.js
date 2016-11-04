@@ -1,5 +1,5 @@
 var server = "localhost:8081";
-var broadcast_interval = 1000;
+var broadcast_interval = 3000;
 
 var updates = null;
 var blocks = null;
@@ -12,6 +12,7 @@ var peers_connections = {};
 var file_blocks = {};
 var blocks_timer = null;
 var server_pending_block = null;
+var server_request_pending = false;
 
 var downloaded = false;
 var broadcast_timeout = null;
@@ -19,6 +20,8 @@ var broadcast_timeout = null;
 var file_size = null;
 var mime_type = null;
 var filename = null;
+
+var debug = [];
 
 var entityMap = {
     "&": "&amp;",
@@ -84,17 +87,18 @@ function check_if_finished() {
     return false;
 }
 
-function get_pending_blocks() {
+function get_pending_blocks(remaining_blocks) {
     var pending = [];
 
     for (var user_id in peers_connections) {
         pending_block = peers_connections[user_id].pending_block;
-        if (pending_block == null) continue;
-        if (pending.indexOf(pending_block) != -1) continue;
+        if (pending_block == null) continue; // No pending request
+        if (remaining_blocks.indexOf(pending_block) == -1) continue; // Already got that block
+        if (pending.indexOf(pending_block) != -1) continue; // Already added to list
         pending.push(pending_block);
     }
 
-    if ((server_pending_block != null) && (pending.indexOf(server_pending_block) == -1))
+    if ((server_pending_block != null) && (pending.indexOf(server_pending_block) == -1) && (remaining_blocks.indexOf(pending_block) != -1))
         pending.push(server_pending_block);
 
     return pending;
@@ -121,17 +125,17 @@ function broadcast_remaining_blocks() {
 
 function broadcast_remaining_blocks_timer() {
     needed_blocks = remaining_blocks();
-    pending_blocks = get_pending_blocks();
+    pending_blocks = get_pending_blocks(needed_blocks);
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
 
     if (needed_blocks.length > 0) {
         /* ask for the server */
-        ask_for_block(null);
+        ask_for_block_with_lists(null, needed_blocks, pending_blocks, nonpending_blocks);
 
         /* and also the peers */
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
-            ask_for_block(peer);
+            ask_for_block_with_lists(peer, needed_blocks, pending_blocks, nonpending_blocks);
         }
 
         broadcast_timeout = setTimeout(broadcast_remaining_blocks_timer, broadcast_interval);
@@ -139,9 +143,17 @@ function broadcast_remaining_blocks_timer() {
 }
 
 function ask_for_block(peer) {
+    needed_blocks = remaining_blocks();
+    pending_blocks = get_pending_blocks(needed_blocks);
+    nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
+    ask_for_block_with_lists(peer, needed_blocks, pending_blocks, nonpending_blocks);
+}
+
+function ask_for_block_with_lists(peer, nonpending_blocks, pending_blocks, nonpending_blocks) {
     if (peer == null) {
         /* Server */
-        if (server_pending_block == null) {
+        if (!server_request_pending) {
+            server_request_pending = true;
             send_message(({type: 'fresh_block', nonpending_blocks: nonpending_blocks, pending_blocks: pending_blocks}));
         }
     } else {
@@ -197,6 +209,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             this.peer.pending_block = null;
             this.peer.request_pending = false;
 
+            log(remaining_blocks());
             if (!check_if_finished()) {
                 ask_for_block(this.peer);
             }
@@ -364,6 +377,14 @@ function handle_message(data) {
             break;
 
         case 'block':
+            if (server_pending_block != null) {
+                log('[!!] server_pending_block is set in block message!')
+            }
+
+            if (!server_request_pending) {
+                log('[!!] Got a block while no request is pending!');
+            }
+
             block_offset = data.block_offset;
             block_length = data.length;
 
@@ -389,31 +410,20 @@ function send_message(msg) {
 
 $(document).ready(function() {
     $("#download").on('click', function() {
-        // TODO: change later so it gets the fileid from the download link itself
-        updates = new WebSocket('ws://' + server + '/updates/?fileid=' + file_id, ['soap', 'xmpp']);
-
-        updates.onopen = function (event) {
-            log('[**] Connected to server.');
-        };
-
-        updates.onmessage = function (event) {
-            log('S->C ' + event.data);
-            data = JSON.parse(event.data);
-            handle_message(data);
-        };
-
-        updates.onclose = function (event) {
-            log('[**] Disconnected.');
-        };
-
         blocks = new WebSocket('ws://' + server + '/blocks', ['soap', 'xmpp']);
+
+        blocks.onopen = function (event) {
+            initialize_updates_ws();
+        }
 
         blocks.onmessage = function (event) {
             if (event.data.size != server_pending_block_length) {
-                log('[!!] Block length is incorrect! Expected ' + this.block_length + ', but got ' + event.data.size);
+                log('[!!] Block length is incorrect! Expected ' + server_pending_block_length + ', but got ' + event.data.size);
+                debug.push(event.data);
             }
             file_blocks[server_pending_block] = event.data;
             server_pending_block = null;
+            server_request_pending = false;
 
             if (!check_if_finished()) {
                 ask_for_block(null);
@@ -421,6 +431,24 @@ $(document).ready(function() {
         };
     });
 });
+
+function initialize_updates_ws() {
+    updates = new WebSocket('ws://' + server + '/updates/?fileid=' + file_id, ['soap', 'xmpp']);
+
+    updates.onopen = function (event) {
+        log('[**] Connected to server.');
+    };
+
+    updates.onmessage = function (event) {
+        log('S->C ' + event.data);
+        data = JSON.parse(event.data);
+        handle_message(data);
+    };
+
+    updates.onclose = function (event) {
+        log('[**] Disconnected.');
+    };
+}
 
 function send_offer(peer, user_id) {
     log("[**] Sending offer from " + my_user_id + " to  " + user_id);

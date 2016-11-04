@@ -194,11 +194,9 @@ exports.handle_blocks_message = function(conn, msg) {
             file_blocks = files[data.file_id].data;
             block_data = file_blocks[data.block_offset];
 
-            conn.send(block_data, {binary: true, mask: false});
-            /*setTimeout(function() {
-                conn.send(block_data, {binary: true, mask: false});
-                conn.close();
-            }, (block_data.length / 1024) * (1/MAX_KBPS) * 1000);*/
+            setTimeout(function() {
+                conn.send(this.block_data, {binary: true, mask: false});
+            }.bind({block_data: block_data}), 100); // (block_data.length / 1024) * (1/MAX_KBPS) * 1000
             break;
 
         default:
