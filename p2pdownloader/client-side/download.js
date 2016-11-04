@@ -163,14 +163,14 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
     };
 
     blocks_data_channel.onmessage = function(msg) {
-        if (peer.next_is_data) {
-            log("[**] Got block data at " + peer.pending_block + " from a peer (id=" + peer.user_id + ")");
-            file_blocks[peer.pending_block] = new Blob([msg.data]);
+        if (this.peer.next_is_data) {
+            log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
+            file_blocks[this.peer.pending_block] = new Blob([msg.data]);
 
-            peer.next_is_data = false;
-            peer.pending_block = null;
-            peer.request_pending = false;
-            //debug.push([peer, false]);
+            this.peer.next_is_data = false;
+            this.peer.pending_block = null;
+            this.peer.request_pending = false;
+            //debug.push([this.peer, false]);
             return;
         }
 
@@ -186,6 +186,12 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
         // parse data being a list of needed blocks or rather a new block
         switch (data.type) {
             case "blocks_request":
+                if (this.peer != peers_connections[data.user_id]) {
+                    log("[!!] PEER CHANGED at blocks_request!");
+                    debug.push([this.peer, msg, this]);
+                    // this.peer = peers_connections[data.user_id];
+                }
+
                 user_nonpending_blocks_list = data.nonpending_blocks;
                 user_pending_blocks_list = data.pending_blocks;
 
@@ -201,45 +207,48 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
 
                 if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
                     block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
-                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + peer.user_id + ")");
-                    debug.push([peer, msg, blocks_data_channel]);
+                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ", " + data.user_id + ")");
                     
                     var fileReader = new FileReader();
+                    fileReader.peer = this.peer;
+                    fileReader.data = data;
+                    fileReader.channel = this;
+                    fileReader.block_offset = block_offset;
                     fileReader.onload = function() {
-                        log("L->R Sent (id=" + peer.user_id + ", " + data.user_id + ")");
-                        blocks_data_channel.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
-                        blocks_data_channel.send(this.result);
+                        log("L->R Sent (id=" + this.peer.user_id + ", " + this.data.user_id + ")");
+                        this.channel.send(JSON.stringify({type: "data_block", block_offset: this.block_offset}));
+                        this.channel.send(this.result);
                     };
                     fileReader.readAsArrayBuffer(file_blocks[block_offset]);
                 } else {
-                    log("L->R No block to send to peer (id=" + peer.user_id + ")");
-                    blocks_data_channel.send(JSON.stringify({type: "no_data_block"}));
+                    log("L->R No block to send to peer (id=" + this.peer.user_id + ")");
+                    this.send(JSON.stringify({type: "no_data_block"}));
                 }
 
                 break;
 
             case "data_block":
-                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + peer.user_id + ")");
+                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.peer.user_id + ")");
 
-                if (peer.pending_block != null) {
+                if (this.peer.pending_block != null) {
                     log("[!!] pending_block != null");
                 }
 
-                peer.pending_block = data.block_offset;
+                this.peer.pending_block = data.block_offset;
 
                 /* override existing if there's any */
-                peer.next_is_data = true;
+                this.peer.next_is_data = true;
                 /* can compute if finished reading file but interval will be called anyways and will clear timer... */
                 break;
 
             case "no_data_block":
-                log("[**] No data block (id=" + peer.user_id + ")");
+                log("[**] No data block (id=" + this.peer.user_id + ")");
 
-                if (!peer.request_pending) {
+                if (!this.peer.request_pending) {
                     log("[!!] !request_pending at no_data_block");
                 }
 
-                peer.request_pending = false;
+                this.peer.request_pending = false;
                 //debug.push([peer, false]);
                 break;
 
@@ -267,7 +276,7 @@ function log(msg) {
 
 function ice_candidate_ready(event) {
     if (event.candidate) {
-        send_message({type:"candidate", candidate: event.candidate, remote_peer_id: this.user_id});
+        send_message({type:"candidate", candidate: event.candidate, remote_peer_id: this.user_id, id: my_user_id});
     }
 }
 
@@ -281,8 +290,8 @@ function create_new_peer(user_id) {
     data_channel = peer.createDataChannel("seedchannel");
     data_channel.binaryType = "arraybuffer";
     data_channel.peer = peer;
+    initialize_blocks_data_channel(peer, true, data_channel);
 
-    data_channel = initialize_blocks_data_channel(peer, true, data_channel);
     peer.ondatachannel = function(event) { initialize_blocks_data_channel(peer, false, event.channel) };
 
     return peer;
@@ -404,7 +413,7 @@ function send_offer(peer, user_id) {
     peer.user_id = user_id;
     peer.createOffer(function (offer) {
             peer.setLocalDescription(offer);
-            send_message({type: "offer", offer: offer, remote_peer_id: peer.user_id});
+            send_message({type: "offer", offer: offer, remote_peer_id: peer.user_id, id: my_user_id});
         }, function(error) {
             alert("Could not create offer");
         }
@@ -427,7 +436,7 @@ function handle_offer(offer, user_id) {
 
     peer.createAnswer(function (answer) {
         peer.setLocalDescription(answer);
-        send_message({type:"answer", answer: answer, remote_peer_id: peer.user_id});
+        send_message({type:"answer", answer: answer, remote_peer_id: peer.user_id, id: my_user_id});
         }, function (error) {
             alert("Error creating answer");
         }
