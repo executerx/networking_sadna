@@ -14,6 +14,7 @@ var blocks_timer = null;
 var server_pending_block = null;
 var server_request_pending = false;
 var blocks_origins = {};
+var progress_initited = false;
 
 var downloaded = false;
 var broadcast_timeout = null;
@@ -81,20 +82,27 @@ function check_if_finished() {
     pending_blocks = get_pending_blocks(remaining_blocks);
     nonpending_blocks = get_nonpending(remaining_blocks, pending_blocks);
 
+    if (!progress_initited) {
+        progress = "";
+        for (var b = 0; b < file_size; b += block_size) {
+            progress += '<div class="progress_box progress_box_no" id="prog_' + b + '"></div>';
+        }
+        $("#progress").html(progress);
+        progress_initited = true;
+    }
+
     progress = "";
     for (var b = 0; b < file_size; b += block_size) {
         if (!(b in blocks_origins)) {
-            cls = "progress_box_no";
+            document.getElementById("prog_" + b).className = "progress_box progress_box_no";
         } else if (blocks_origins[b] == "server") {
-            cls = "progress_box_server";
+            document.getElementById("prog_" + b).className = "progress_box progress_box_server";
         } else if (blocks_origins[b] == "peer") {
-            cls = "progress_box_peer";
+            document.getElementById("prog_" + b).className = "progress_box progress_box_peer";
         } else {
             log("[!!] Unexpected origin");
         }
-        progress += '<div class="progress_box ' + cls + '"></div>';
     }
-    $("#progress").html(progress);
 
     if (remaining_blocks.length == 0) {
         if (!downloaded) {

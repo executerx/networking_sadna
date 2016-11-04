@@ -1,15 +1,12 @@
-var BLOCK_SIZE = 1024;
-var MAX_KBPS = 0.5;
-
 var utils = require('./utils');
 
 var users = {};
 var updates_server = null, blocks_server = null;
 
-function divide_file_into_blocks(file_data) {
+function divide_file_into_blocks(file_data, block_size) {
     blocks = {};
-    for (var b = 0; b < file_data.length; b += BLOCK_SIZE) {
-        blocks[b] = file_data.slice(b, b+BLOCK_SIZE);
+    for (var b = 0; b < file_data.length; b += block_size) {
+        blocks[b] = file_data.slice(b, b+block_size);
     }
 
     return blocks;
@@ -29,18 +26,31 @@ var files = {
     1337: {
         "filename": "blah.txt",
         "mime_type": "text/plain",
-        "data": divide_file_into_blocks(Buffer("pasten123456pasten123456"))
+        "data": divide_file_into_blocks(Buffer("pasten123456pasten123456"), 6),
+        "block_size": 6,
+        "max_bps": 1024
     },
     1234: {
         "filename": "chrome.jpg",
         "mime_type": "image/jpeg",
-        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"))
+        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"), 1024),
+        "block_size": 1024,
+        "max_bps": 1024*0.5
     },
     1001: {
         "filename": "great.py",
         "mime_type": "application/x-python",
-        "data": divide_file_into_blocks(utils.readFile("data/some_text_file")),
-    }
+        "data": divide_file_into_blocks(utils.readFile("data/some_text_file"), 1024),
+        "block_size": 1024,
+        "max_bps": 1024*0.5
+    },
+    // 1201: {
+    //     "filename": "MRT.exe",
+    //     "mime_type": "application/exe",
+    //     "data": divide_file_into_blocks(utils.readFile("data/MRT.exe"), 1024*100),
+    //     "block_size": 1024*100,
+    //     "max_bps": 1024*50
+    // }
 };
 
 exports.set_servers = function(updates, blocks) {
@@ -75,7 +85,7 @@ exports.handle_open = function(conn, req) {
         type: 'hello',
         id: userid,
         users: users_ids,
-        block_size: BLOCK_SIZE,
+        block_size: files[file_id].block_size,
         file_size: calculate_file_size(files[file_id].data),
         file_name: files[file_id].filename,
         mime_type: files[file_id].mime_type,
@@ -208,10 +218,11 @@ exports.handle_blocks_message = function(conn, msg) {
 
             file_blocks = files[data.file_id].data;
             block_data = file_blocks[data.block_offset];
+            max_bps = files[data.file_id].max_bps;
 
             setTimeout(function() {
                 conn.send(this.block_data, {binary: true, mask: false});
-            }.bind({block_data: block_data}), (block_data.length / 1024) * (1/MAX_KBPS) * 1000);
+            }.bind({block_data: block_data, max_bps: max_bps}), block_data.length * (1/max_bps) * 1000);
             break;
 
         default:
