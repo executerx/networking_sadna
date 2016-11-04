@@ -1,6 +1,4 @@
 TODO
 ----
- * Simulate bandwidth in server
- * When broadcasting users list, broadcast users of the same file only
  * Make sure things works when peers disconnect
  * Signing

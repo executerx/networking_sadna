@@ -87,8 +87,8 @@ exports.handle_open = function(conn, req) {
 };
 
 exports.handle_close = function(conn) {
-    delete users[conn.id];
     broadcast_state(conn.id, false);
+    delete users[conn.id];
     console.log(`[*] Client disconnected! (id=${conn.id})`);
 };
 
@@ -139,6 +139,11 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending offer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
+                if (remote_user.file_id != conn.file_id) {
+                    console.log("File id mismatch!");
+                    conn.close();
+                    return;
+                }
                 remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending offer");
@@ -149,6 +154,11 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending answer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
+                if (remote_user.file_id != conn.file_id) {
+                    console.log("File id mismatch!");
+                    conn.close();
+                    return;
+                }
                 remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending answer");
@@ -159,6 +169,11 @@ exports.handle_message = function(conn, msg) {
             console.log("Sending candidate from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
+                if (remote_user.file_id != conn.file_id) {
+                    console.log("File id mismatch!");
+                    conn.close();
+                    return;
+                }
                 remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id}));
             } catch (e) {
                 console.log("Error sending candidate");
@@ -220,13 +235,14 @@ function register(conn, file_id) {
     conn.id = id;
     conn.file_id = file_id;
     users[id] = conn;
+    users[id].file_id = file_id;
     return id;
 }
 
 function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
-        if (conn.id !== undefined && conn.id != this.userid) {/* && conn.file_id == users[userid].file_id) { // change this later as this fails because no file_id */
+        if (conn.id !== undefined && conn.id != this.userid && conn.file_id == users[userid].file_id) {
             conn.send(utils.pack({type: 'state', id: this.userid, state: this.state}));
         }
     }.bind({userid: userid, state: state}));
