@@ -236,8 +236,8 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             if (!(this.peer.pending_block in file_blocks)) {
                 file_blocks[this.peer.pending_block] = [];
             }
-            if (!(file_blocks[this.peer.pending_block] instanceof Blob)) {
-                logging("???????? does not make sense.");
+            if (file_blocks[this.peer.pending_block] instanceof Blob) {
+                log("???????? does not make sense.");
             }
             file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
 
@@ -297,6 +297,16 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                         log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ")");
                         this.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
 
+                        var fileReader = new FileReader();
+                        fileReader.peer = this.peer;
+                        fileReader.channel = this;
+                        fileReader.onload = function (e) {
+                            file_block = e.target.result;
+                            this.channel.send(file_block); /* TODO: I'm worrying this does not send *all* data since clients can have *very* long-term pending blocks */
+                            log("L->R Sent (id=" + this.peer.user_id + ")");
+                        };
+                        fileReader.readAsArrayBuffer(file_blocks[block_offset]);
+
                     } else {
                         log("L->R No block to send to peer (id=" + this.peer.user_id + ")");
                         this.send(JSON.stringify({type: "no_data_block"}));
@@ -304,33 +314,8 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
 
                     break;
 
-                case "confirm_block_transmission":
-                    /* client agreed to accept our block - send him the block */
-                    /* TODO: maybe verify that this is the block we agreed upon?
-                       Nah, client could fabricate it even when it used to be in one message */
-                    /* TODO: maybe add timeout if other end does not get the block in time so we could mark it as non-pending? */
-                    var fileReader = new FileReader();
-                    fileReader.peer = this.peer;
-                    fileReader.channel = this;
-                    fileReader.block_offset = data.block_offset;
-                    fileReader.onload = function (e) {
-                        file_block = e.target.result;
-                        this.channel.send(file_block);
-                        log("L->R Sent (id=" + this.peer.user_id + ")");
-                    };
-                    fileReader.readAsArrayBuffer(file_blocks[data.block_offset]);
-                    break;
-
-
                 case "data_block":
                     log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.peer.user_id + ")");
-
-                    /* make sure we are not already waiting for this block anywhere */
-                    for (p in peers_connections) {
-                        if (p.pending_block == data.block_offset && p.request_pending) {
-                            return;
-                        }
-                    }
 
                     if (this.peer.pending_block != null) {
                         log("[!!] pending_block != null");
@@ -339,7 +324,6 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                     /* override existing if there's any */
                     this.peer.pending_block = data.block_offset;
                     this.peer.bytes_left_to_read = block_size; /* need to read an entire block */
-                    this.send(JSON.stringify({type: "confirm_block_transmission", block_offset: data.block_offset}));
                     break;
 
                 case "no_data_block":
