@@ -233,17 +233,14 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
         if (this.peer.bytes_left_to_read > 0 && msg.data instanceof ArrayBuffer) {
             log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
 
-            if (!(this.peer.pending_block in file_blocks)) {
-                file_blocks[this.peer.pending_block] = [];
-            }
-            if (file_blocks[this.peer.pending_block] instanceof Blob) {
+            if (this.peer.pending_block in file_blocks && file_blocks[this.peer.pending_block] instanceof Blob) {
                 log("???????? does not make sense.");
+                this.peer.pending_block = null;
+                this.peer.request_pending = false;
+                return;
             }
-            file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
-
-            if (!(this.peer.pending_block in blocks_origins)) {
-                blocks_origins[this.peer.pending_block] = "peer";
-            }
+            // file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
+            this.peer.blocks.push(msg.data);
 
             this.peer.bytes_left_to_read -=  msg.data.byteLength;
             if (this.peer.bytes_left_to_read < 0 || isNaN(this.peer.bytes_left_to_read)) {
@@ -251,9 +248,13 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                 this.peer.bytes_left_to_read = 0;
             }
             if (this.peer.bytes_left_to_read == 0) {
-                file_blocks[this.peer.pending_block] = new Blob(file_blocks[this.peer.pending_blocks]); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                file_blocks[this.peer.pending_block] = new Blob(this.peer.blocks); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                if (!(this.peer.pending_block in blocks_origins)) {
+                    blocks_origins[this.peer.pending_block] = "peer";
+                }
                 this.peer.pending_block = null;
                 this.peer.request_pending = false;
+                this.peer.blocks = [];
             }
 
             if (!check_if_finished()) {
@@ -281,9 +282,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
 
                     blocks_offsets_in_stock = [];
                     for (var b in file_blocks) { /* turn this crap into one-liner */
-                        if (file_blocks[b] instanceof Blob) { /* only if the block is constructed as a Blob, did we finished receiving the block */
-                            blocks_offsets_in_stock.push(b);
-                        }
+                        blocks_offsets_in_stock.push(b);
                     }
 
                     blocks_for_user = get_intersection(user_nonpending_blocks_list, blocks_offsets_in_stock);
@@ -306,7 +305,6 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                             log("L->R Sent (id=" + this.peer.user_id + ")");
                         };
                         fileReader.readAsArrayBuffer(file_blocks[block_offset]);
-
                     } else {
                         log("L->R No block to send to peer (id=" + this.peer.user_id + ")");
                         this.send(JSON.stringify({type: "no_data_block"}));
@@ -369,6 +367,7 @@ function create_new_peer(user_id) {
     log("[**] Initializing new peer object.");
     peer = new RTCPeerConnection();
     peer.pending_block = null;
+    peer.blocks = [];
     peer.user_id = user_id;
     peer.bytes_left_to_read = 0; /* peer have not sent anything interesting yet */
     peer.onicecandidate = ice_candidate_ready.bind({user_id: user_id}); /* fired up when setLocalDescriptor is called */
