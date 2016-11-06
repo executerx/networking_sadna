@@ -159,12 +159,12 @@ function broadcast_remaining_blocks_timer() {
 
     if (needed_blocks.length > 0) {
         /* ask for the server */
-        ask_for_block_with_lists(null, needed_blocks, pending_blocks, nonpending_blocks);
+        ask_for_block_with_lists(null, pending_blocks, nonpending_blocks);
 
         /* and also the peers */
         for (var user_id in peers_connections) {
             peer = peers_connections[user_id];
-            ask_for_block_with_lists(peer, needed_blocks, pending_blocks, nonpending_blocks);
+            ask_for_block_with_lists(peer, pending_blocks, nonpending_blocks);
         }
 
         broadcast_timeout = setTimeout(broadcast_remaining_blocks_timer, broadcast_interval);
@@ -175,10 +175,10 @@ function ask_for_block(peer) {
     needed_blocks = get_remaining_blocks();
     pending_blocks = get_pending_blocks(needed_blocks);
     nonpending_blocks = get_nonpending(needed_blocks, pending_blocks);
-    ask_for_block_with_lists(peer, needed_blocks, pending_blocks, nonpending_blocks);
+    ask_for_block_with_lists(peer, pending_blocks, nonpending_blocks);
 }
 
-function ask_for_block_with_lists(peer, nonpending_blocks, pending_blocks, nonpending_blocks) {
+function ask_for_block_with_lists(peer, pending_blocks, nonpending_blocks) {
     if (peer == null) {
         /* Server */
         if (!server_request_pending) {
@@ -214,7 +214,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
     blocks_data_channel.peer = peer;
     
     peer.request_pending = false;
-    peer.next_is_data = false;
+    peer.bytes_left_to_read = 0;
 
     if (is_local) {
         peer.local_data_channel = blocks_data_channel;
@@ -230,96 +230,131 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
     };
 
     blocks_data_channel.onmessage = function(msg) {
-        if (this.peer.next_is_data) {
+        if (this.peer.bytes_left_to_read > 0 && msg.data instanceof ArrayBuffer) {
             log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
-            file_blocks[this.peer.pending_block] = new Blob([msg.data]);
+
+            if (!(this.peer.pending_block in file_blocks)) {
+                file_blocks[this.peer.pending_block] = [];
+            }
+            if (!(file_blocks[this.peer.pending_block] instanceof Blob)) {
+                logging("???????? does not make sense.");
+            }
+            file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
 
             if (!(this.peer.pending_block in blocks_origins)) {
                 blocks_origins[this.peer.pending_block] = "peer";
             }
 
-            this.peer.next_is_data = false;
-            this.peer.pending_block = null;
-            this.peer.request_pending = false;
+            this.peer.bytes_left_to_read -=  msg.data.byteLength;
+            if (this.peer.bytes_left_to_read < 0 || isNaN(this.peer.bytes_left_to_read)) {
+                log("[!!] Unexpected boundary of bytes sent by peer (expecting data collected to be a multiple of a block size");
+                this.peer.bytes_left_to_read = 0;
+            }
+            if (this.peer.bytes_left_to_read == 0) {
+                file_blocks[this.peer.pending_block] = new Blob(file_blocks[this.peer.pending_blocks]); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                this.peer.pending_block = null;
+                this.peer.request_pending = false;
+            }
 
             if (!check_if_finished()) {
                 ask_for_block(this.peer);
             }
 
             return;
-        }
+        } else if (this.peer.bytes_left_to_read == 0 && msg.data instanceof ArrayBuffer) {
+            log("[!!] Received data from peer when not expecting any.");
 
-        try {
-            data = JSON.parse(msg.data);
-        } catch (e) {
-            log("[!!] Malformed message sent in block data channel.");
             return;
-        }
+        }else {
+            try {
+                data = JSON.parse(msg.data);
+            } catch (e) {
+                log("[!!] Malformed message sent in block data channel.");
+                return;
+            }
 
-        // parse data being a list of needed blocks or rather a new block
-        switch (data.type) {
-            case "blocks_request":
-                user_nonpending_blocks_list = data.nonpending_blocks;
-                user_pending_blocks_list = data.pending_blocks;
+            // parse data being a list of needed blocks or rather a new block
+            switch (data.type) {
+                case "blocks_request":
+                    user_nonpending_blocks_list = data.nonpending_blocks;
+                    user_pending_blocks_list = data.pending_blocks;
 
-                blocks_offsets_in_stock = [];
-                for (var b in file_blocks) { /* turn this crap into one-liner */
-                    blocks_offsets_in_stock.push(b);
-                }
+                    blocks_offsets_in_stock = [];
+                    for (var b in file_blocks) { /* turn this crap into one-liner */
+                        if (file_blocks[b] instanceof Blob) { /* only if the block is constructed as a Blob, did we finished receiving the block */
+                            blocks_offsets_in_stock.push(b);
+                        }
+                    }
 
-                blocks_for_user = get_intersection(user_nonpending_blocks_list, blocks_offsets_in_stock);
-                if (blocks_for_user.length == 0) {
-                    blocks_for_user = get_intersection(user_pending_blocks_list, blocks_offsets_in_stock);
-                }
+                    blocks_for_user = get_intersection(user_nonpending_blocks_list, blocks_offsets_in_stock);
+                    if (blocks_for_user.length == 0) {
+                        blocks_for_user = get_intersection(user_pending_blocks_list, blocks_offsets_in_stock);
+                    }
 
-                if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
-                    block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))]; /* pick one at random */
-                    log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ")");
-                    
+                    if (blocks_for_user.length > 0) { /* if we can satisfy peer with a block */
+                        block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))];
+                        /* pick one at random */
+                        log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ")");
+                        this.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
+
+                    } else {
+                        log("L->R No block to send to peer (id=" + this.peer.user_id + ")");
+                        this.send(JSON.stringify({type: "no_data_block"}));
+                    }
+
+                    break;
+
+                case "confirm_block_transmission":
+                    /* client agreed to accept our block - send him the block */
+                    /* TODO: maybe verify that this is the block we agreed upon?
+                       Nah, client could fabricate it even when it used to be in one message */
+                    /* TODO: maybe add timeout if other end does not get the block in time so we could mark it as non-pending? */
                     var fileReader = new FileReader();
                     fileReader.peer = this.peer;
-                    fileReader.data = data;
                     fileReader.channel = this;
-                    fileReader.block_offset = block_offset;
-                    fileReader.onload = function() {
+                    fileReader.block_offset = data.block_offset;
+                    fileReader.onload = function (e) {
+                        file_block = e.target.result;
+                        this.channel.send(file_block);
                         log("L->R Sent (id=" + this.peer.user_id + ")");
-                        this.channel.send(JSON.stringify({type: "data_block", block_offset: this.block_offset}));
-                        this.channel.send(this.result);
                     };
-                    fileReader.readAsArrayBuffer(file_blocks[block_offset]);
-                } else {
-                    log("L->R No block to send to peer (id=" + this.peer.user_id + ")");
-                    this.send(JSON.stringify({type: "no_data_block"}));
-                }
+                    fileReader.readAsArrayBuffer(file_blocks[data.block_offset]);
+                    break;
 
-                break;
 
-            case "data_block":
-                log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.peer.user_id + ")");
+                case "data_block":
+                    log("R->L Received block at offset " + data.block_offset + " from peer (id=" + this.peer.user_id + ")");
 
-                if (this.peer.pending_block != null) {
-                    log("[!!] pending_block != null");
-                }
+                    /* make sure we are not already waiting for this block anywhere */
+                    for (p in peers_connections) {
+                        if (p.pending_block == data.block_offset && p.request_pending) {
+                            return;
+                        }
+                    }
 
-                this.peer.pending_block = data.block_offset;
+                    if (this.peer.pending_block != null) {
+                        log("[!!] pending_block != null");
+                    }
 
-                /* override existing if there's any */
-                this.peer.next_is_data = true;
-                /* can compute if finished reading file but interval will be called anyways and will clear timer... */
-                break;
+                    /* override existing if there's any */
+                    this.peer.pending_block = data.block_offset;
+                    this.peer.bytes_left_to_read = block_size; /* need to read an entire block */
+                    this.send(JSON.stringify({type: "confirm_block_transmission", block_offset: data.block_offset}));
+                    break;
 
-            case "no_data_block":
-                log("[**] No data block (id=" + this.peer.user_id + ")");
+                case "no_data_block":
+                    log("[**] No data block (id=" + this.peer.user_id + ")");
 
-                if (!this.peer.request_pending) {
-                    log("[!!] !request_pending at no_data_block");
-                }
+                    if (!this.peer.request_pending) {
+                        log("[!!] !request_pending at no_data_block");
+                    }
 
-                this.peer.request_pending = false;
-                break;
+                    this.peer.request_pending = false;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
     };
 
@@ -351,6 +386,7 @@ function create_new_peer(user_id) {
     peer = new RTCPeerConnection();
     peer.pending_block = null;
     peer.user_id = user_id;
+    peer.bytes_left_to_read = 0; /* peer have not sent anything interesting yet */
     peer.onicecandidate = ice_candidate_ready.bind({user_id: user_id}); /* fired up when setLocalDescriptor is called */
 
     data_channel = peer.createDataChannel("seedchannel");

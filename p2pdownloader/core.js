@@ -44,13 +44,13 @@ var files = {
         "block_size": 1024,
         "max_bps": 1024*0.5
     },
-    // 1201: {
-    //     "filename": "MRT.exe",
-    //     "mime_type": "application/exe",
-    //     "data": divide_file_into_blocks(utils.readFile("data/MRT.exe"), 1024*100),
-    //     "block_size": 1024*100,
-    //     "max_bps": 1024*50
-    // }
+    1201: {
+        "filename": "pentest_android.pdf",
+        "mime_type": "application/pdf",
+        "data": divide_file_into_blocks(utils.readFile("data/pentest_android.pdf"), 1024*100),
+        "block_size": 1024*100,
+        "max_bps": 1024*50
+    }
 };
 
 exports.set_servers = function(updates, blocks) {
@@ -135,13 +135,14 @@ exports.handle_message = function(conn, msg) {
 
             if (!(block_offset in file_blocks)) {
                 console.log("Peer asked for invalid block_offset");
-                conn.send(utils.pack({type: 'error', message: 'Invalid block_offset '}));
+                conn.send(utils.pack({type: 'error', message: 'Invalid block_offset '})); /* maybe catch exception if connection has closed? */
                 conn.close();
             }
 
             console.log("Handing block offset " + block_offset + " for peer");
             block_data = file_blocks[block_offset];
 
+            /* maybe catch exception if connection has closed? */
             conn.send(utils.pack({type: "block", block_offset: block_offset, length: block_data.length}));
             break;
 
@@ -211,7 +212,9 @@ exports.handle_blocks_message = function(conn, msg) {
         case 'block':
             if (!(data.file_id in files) || !(data.block_offset in files[data.file_id].data)) {
                 console.log("[*] Bad file id or offset");
-                conn.send(utils.pack({type: 'error', message: 'Bad file id or offset'}));
+                if (conn.readyState == 1) {
+                    conn.send(utils.pack({type: 'error', message: 'Bad file id or offset'}));
+                }
                 conn.close();
                 return;
             }
@@ -221,7 +224,9 @@ exports.handle_blocks_message = function(conn, msg) {
             max_bps = files[data.file_id].max_bps;
 
             setTimeout(function() {
-                conn.send(this.block_data, {binary: true, mask: false});
+                if (conn.readyState == 1) {
+                    conn.send(this.block_data, {binary: true, mask: false});
+                }
             }.bind({block_data: block_data, max_bps: max_bps}), block_data.length * (1/max_bps) * 1000);
             break;
 
@@ -254,7 +259,9 @@ function broadcast_state(userid, state) {
     // state: {true, false} ~ {connected, disconnected}
     updates_server.clients.forEach(function (conn) {
         if (conn.id !== undefined && conn.id != this.userid && conn.file_id == users[userid].file_id) {
-            conn.send(utils.pack({type: 'state', id: this.userid, state: this.state}));
+            if (conn.readyState == 1) {
+                conn.send(utils.pack({type: 'state', id: this.userid, state: this.state}));
+            }
         }
     }.bind({userid: userid, state: state}));
 }
