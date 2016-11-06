@@ -34,6 +34,43 @@ var entityMap = {
     "/": '&#x2F;'
 };
 
+ICE_SERVERS = [
+    {url:'stun:stun01.sipphone.com'},
+    {url:'stun:stun.ekiga.net'},
+    {url:'stun:stun.fwdnet.net'},
+    {url:'stun:stun.ideasip.com'},
+    {url:'stun:stun.iptel.org'},
+    {url:'stun:stun.rixtelecom.se'},
+    {url:'stun:stun.schlund.de'},
+    {url:'stun:stun.l.google.com:19302'},
+    {url:'stun:stun1.l.google.com:19302'},
+    {url:'stun:stun2.l.google.com:19302'},
+    {url:'stun:stun3.l.google.com:19302'},
+    {url:'stun:stun4.l.google.com:19302'},
+    {url:'stun:stunserver.org'},
+    {url:'stun:stun.softjoys.com'},
+    {url:'stun:stun.voiparound.com'},
+    {url:'stun:stun.voipbuster.com'},
+    {url:'stun:stun.voipstunt.com'},
+    {url:'stun:stun.voxgratia.org'},
+    {url:'stun:stun.xten.com'},
+    {
+        url: 'turn:numb.viagenie.ca',
+        credential: 'muazkh',
+        username: 'webrtc@live.com'
+    },
+    {
+        url: 'turn:192.158.29.39:3478?transport=udp',
+        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+        username: '28224511:1379330808'
+    },
+    {
+        url: 'turn:192.158.29.39:3478?transport=tcp',
+        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+        username: '28224511:1379330808'
+    }
+];
+
 function keys_sorted(dict) {
     var keys = [];
     for (var key in dict) {
@@ -242,9 +279,11 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                 this.peer.bytes_left_to_read = 0;
             }
             if (this.peer.bytes_left_to_read == 0) {
-                file_blocks[this.peer.pending_block] = new Blob(this.peer.blocks); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
-                if (!(this.peer.pending_block in blocks_origins)) {
-                    blocks_origins[this.peer.pending_block] = "peer";
+                if (!(file_blocks[this.peer.pending_block] instanceof Blob)) {
+                    file_blocks[this.peer.pending_block] = new Blob(this.peer.blocks); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                    if (!(this.peer.pending_block in blocks_origins)) {
+                        blocks_origins[this.peer.pending_block] = "peer";
+                    }
                 }
                 this.peer.pending_block = null;
                 this.peer.request_pending = false;
@@ -359,7 +398,7 @@ function ice_candidate_ready(event) {
 
 function create_new_peer(user_id) {
     log("[**] Initializing new peer object.");
-    peer = new RTCPeerConnection();
+    peer = new RTCPeerConnection({ "iceServers": ICE_SERVERS });
     peer.pending_block = null;
     peer.blocks = [];
     peer.user_id = user_id;

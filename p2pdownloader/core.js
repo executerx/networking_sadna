@@ -45,9 +45,9 @@ var files = {
         "max_bps": 1024*0.5
     },
     1201: {
-        "filename": "pentest_android.pdf",
+        "filename": "MRT.exe",
         "mime_type": "application/pdf",
-        "data": divide_file_into_blocks(utils.readFile("data/pentest_android.pdf"), 1024*100),
+        "data": divide_file_into_blocks(utils.readFile("data/MRT.exe"), 1024*100),
         "block_size": 1024*100,
         "max_bps": 1024*50
     }
