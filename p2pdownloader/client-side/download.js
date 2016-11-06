@@ -233,12 +233,6 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
         if (this.peer.bytes_left_to_read > 0 && msg.data instanceof ArrayBuffer) {
             log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
 
-            if (this.peer.pending_block in file_blocks && file_blocks[this.peer.pending_block] instanceof Blob) {
-                log("???????? does not make sense.");
-                this.peer.pending_block = null;
-                this.peer.request_pending = false;
-                return;
-            }
             // file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
             this.peer.blocks.push(msg.data);
 
