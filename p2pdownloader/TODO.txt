@@ -1,4 +1,4 @@
 TODO
 ----
  * Make sure things works when peers disconnect
- * Signing
+ * Make sure the STUN servers works!

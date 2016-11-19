@@ -7,6 +7,8 @@
         <script type="text/javascript" src="adapter.js"></script>
         <script type="text/javascript" src="download.js"></script>
         <script type="text/javascript" src="FileSaver.js"></script>
+        <script type="text/javascript" src="https://kjur.github.io/jsrsasign/jws-3.3.js"></script>
+        <script type="text/javascript" src="jsrsasign.js"></script>
 
         <style>
             body {
@@ -54,8 +56,8 @@
         <div class="box" id="progress_box">
             <div id="progress"></div>
             <div class="progress_box progress_box_no"></div> - Block not present<br />
-            <div class="progress_box progress_box_server"></div> - Got block from the server<br />
-            <div class="progress_box progress_box_peer"></div> - Got block from a peer
+            <div class="progress_box progress_box_server"></div> - Block arrived from the server<br />
+            <div class="progress_box progress_box_peer"></div> - Block arrived from a peer
         </div>
         <div class="box">
             <strong>Console</strong>

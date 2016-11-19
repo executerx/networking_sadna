@@ -20,3 +20,12 @@ exports.readFile = function(filename) {
     fs = require('fs');
     return fs.readFileSync(filename);
 };
+
+exports.divide_file_into_blocks = function(file_data, block_size) {
+    blocks = {};
+    for (var b = 0; b < file_data.length; b += block_size) {
+        blocks[b] = file_data.slice(b, b+block_size);
+    }
+
+    return blocks;
+}

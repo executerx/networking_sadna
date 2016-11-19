@@ -17,6 +17,7 @@ app.use('/download.js', staticFile('client-side/download.js'));
 app.use('/adapter.js', staticFile('client-side/adapter.js'));
 app.use('/jquery.js', staticFile('client-side/jquery-3.1.1.min.js'));
 app.use('/FileSaver.js', staticFile('client-side/FileSaver.min.js'));
+app.use('/jsrsasign.js', staticFile('client-side/jsrsasign-latest-all-min.js'));
 
 app.ws('/updates', function(conn, req) {
     try {
@@ -48,6 +49,6 @@ app.ws('/blocks', function(conn, req) {
     }
 });
 
-core.set_servers(appWs.getWss('/updates'), appWs.getWss('/blocks'));
+core.initialize(appWs.getWss('/updates'), appWs.getWss('/blocks'));
 
 app.listen(8081);

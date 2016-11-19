@@ -10,11 +10,14 @@ var users = null;
 var block_size = null;
 var peers_connections = {};
 var file_blocks = {};
+var file_signatures = {};
 var blocks_timer = null;
 var server_pending_block = null;
 var server_request_pending = false;
 var blocks_origins = {};
 var progress_initited = false;
+var ice_servers = null;
+var pubkey = null;
 
 var downloaded = false;
 var broadcast_timeout = null;
@@ -34,43 +37,6 @@ var entityMap = {
     "/": '&#x2F;'
 };
 
-ICE_SERVERS = [
-    {url:'stun:stun01.sipphone.com'},
-    {url:'stun:stun.ekiga.net'},
-    {url:'stun:stun.fwdnet.net'},
-    {url:'stun:stun.ideasip.com'},
-    {url:'stun:stun.iptel.org'},
-    {url:'stun:stun.rixtelecom.se'},
-    {url:'stun:stun.schlund.de'},
-    {url:'stun:stun.l.google.com:19302'},
-    {url:'stun:stun1.l.google.com:19302'},
-    {url:'stun:stun2.l.google.com:19302'},
-    {url:'stun:stun3.l.google.com:19302'},
-    {url:'stun:stun4.l.google.com:19302'},
-    {url:'stun:stunserver.org'},
-    {url:'stun:stun.softjoys.com'},
-    {url:'stun:stun.voiparound.com'},
-    {url:'stun:stun.voipbuster.com'},
-    {url:'stun:stun.voipstunt.com'},
-    {url:'stun:stun.voxgratia.org'},
-    {url:'stun:stun.xten.com'},
-    {
-        url: 'turn:numb.viagenie.ca',
-        credential: 'muazkh',
-        username: 'webrtc@live.com'
-    },
-    {
-        url: 'turn:192.158.29.39:3478?transport=udp',
-        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
-        username: '28224511:1379330808'
-    },
-    {
-        url: 'turn:192.158.29.39:3478?transport=tcp',
-        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
-        username: '28224511:1379330808'
-    }
-];
-
 function keys_sorted(dict) {
     var keys = [];
     for (var key in dict) {
@@ -81,6 +47,21 @@ function keys_sorted(dict) {
     keys.sort(function(a,b) { return a - b; });
 
     return keys;
+}
+
+function verify_block(pubKey, block_data, offset, signature) {
+    var sig = new KJUR.crypto.Signature({alg: 'SHA256withRSA'});
+    sig.init(pubKey);
+    sig.updateString(offset.toString() + "|");
+
+    for (var i in block_data) {
+        data = new Uint8Array(block_data[i]);
+        for (var j in data) {
+            sig.updateHex(("00" + (data[j]).toString(16)).substr(-2));
+        }
+    }
+    
+    return sig.verify(signature);
 }
 
 function reconstruct_file(blocks) {
@@ -270,17 +251,24 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
         if (this.peer.bytes_left_to_read > 0 && msg.data instanceof ArrayBuffer) {
             log("[**] Got block data at " + this.peer.pending_block + " from a peer (id=" + this.peer.user_id + ")");
 
-            // file_blocks[this.peer.pending_block].push(msg.data); /* what if 2 uses send us parts of the same block? :-/ */
             this.peer.blocks.push(msg.data);
 
             this.peer.bytes_left_to_read -=  msg.data.byteLength;
             if (this.peer.bytes_left_to_read < 0 || isNaN(this.peer.bytes_left_to_read)) {
-                log("[!!] Unexpected boundary of bytes sent by peer (expecting data collected to be a multiple of a block size");
+                log("[!!] Unexpected boundary of bytes sent by peer (expecting data collected to be a multiple of a block size)");
                 this.peer.bytes_left_to_read = 0;
             }
             if (this.peer.bytes_left_to_read == 0) {
                 if (!(file_blocks[this.peer.pending_block] instanceof Blob)) {
-                    file_blocks[this.peer.pending_block] = new Blob(this.peer.blocks); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                    if (!verify_block(pubkey, this.peer.blocks, this.peer.pending_block, this.peer.pending_signature)) {
+                        log("[!!] Signature does not verify! (block_offset=" + this.peer.pending_block + ", id=" + this.peer.user_id + ")");
+                        this.peer.close();
+                        return;
+                    }
+
+                    block_data = new Blob(this.peer.blocks); /* TODO: don't we need to mention file type here? or just in saveToDisk? */
+                    file_blocks[this.peer.pending_block] = block_data;
+                    file_signatures[this.peer.pending_block] = this.peer.pending_signature;
                     if (!(this.peer.pending_block in blocks_origins)) {
                         blocks_origins[this.peer.pending_block] = "peer";
                     }
@@ -297,9 +285,8 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             return;
         } else if (this.peer.bytes_left_to_read == 0 && msg.data instanceof ArrayBuffer) {
             log("[!!] Received data from peer when not expecting any.");
-
             return;
-        }else {
+        } else {
             try {
                 data = JSON.parse(msg.data);
             } catch (e) {
@@ -327,7 +314,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
                         block_offset = blocks_for_user[Math.floor((Math.random() * blocks_for_user.length))];
                         /* pick one at random */
                         log("L->R Sending block at offset " + block_offset + " to peer (id=" + this.peer.user_id + ")");
-                        this.send(JSON.stringify({type: "data_block", block_offset: block_offset}));
+                        this.send(JSON.stringify({type: "data_block", block_offset: block_offset, signature: file_signatures[block_offset]}));
 
                         var fileReader = new FileReader();
                         fileReader.peer = this.peer;
@@ -354,6 +341,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
 
                     /* override existing if there's any */
                     this.peer.pending_block = data.block_offset;
+                    this.peer.pending_signature = data.signature;
                     this.peer.bytes_left_to_read = block_size; /* need to read an entire block */
                     break;
 
@@ -398,7 +386,7 @@ function ice_candidate_ready(event) {
 
 function create_new_peer(user_id) {
     log("[**] Initializing new peer object.");
-    peer = new RTCPeerConnection({ "iceServers": ICE_SERVERS });
+    peer = new RTCPeerConnection({ "iceServers": ice_servers });
     peer.pending_block = null;
     peer.blocks = [];
     peer.user_id = user_id;
@@ -424,6 +412,8 @@ function handle_message(data) {
             file_size = data.file_size;
             mime_type = data.mime_type;
             filename = data.filename
+            pubkey = KEYUTIL.getKey(data.pubkey);
+            ice_servers = data.ice_servers;
 
             for (var idx in users) {
                 user_id = users[idx];
@@ -476,6 +466,7 @@ function handle_message(data) {
 
             server_pending_block = block_offset;
             server_pending_block_length = block_length;
+            server_pending_signature = data.signature;
 
             /* override existing if there is */
             blocks.send(JSON.stringify({type: "block", file_id: file_id, block_offset: block_offset}));
@@ -505,14 +496,14 @@ $(document).ready(function() {
     blocks.onmessage = function (event) {
         if (event.data.size != server_pending_block_length) {
             log('[!!] Block length is incorrect! Expected ' + server_pending_block_length + ', but got ' + event.data.size);
-            debug.push(event.data);
         }
-
-        file_blocks[server_pending_block] = event.data;
 
         if (!(server_pending_block in blocks_origins)) {
             blocks_origins[server_pending_block] = "server";
+            file_blocks[server_pending_block] = event.data;
+            file_signatures[server_pending_block] = server_pending_signature;
         }
+
         server_pending_block = null;
         server_request_pending = false;
 
@@ -520,7 +511,6 @@ $(document).ready(function() {
             ask_for_block(null);
         }
     };
-    //});
 });
 
 function initialize_updates_ws() {

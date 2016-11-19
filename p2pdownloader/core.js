@@ -1,16 +1,10 @@
 var utils = require('./utils');
+var crypto = require('./crypto');
+var config = require('./config');
 
 var users = {};
 var updates_server = null, blocks_server = null;
-
-function divide_file_into_blocks(file_data, block_size) {
-    blocks = {};
-    for (var b = 0; b < file_data.length; b += block_size) {
-        blocks[b] = file_data.slice(b, b+block_size);
-    }
-
-    return blocks;
-}
+var files = config.files;
 
 function calculate_file_size(blocks) {
     var data_length = 0;
@@ -21,56 +15,50 @@ function calculate_file_size(blocks) {
     return data_length;
 }
 
-/* a dictionary of file ids and their content divided into blocks */
-var files = {
-    1337: {
-        "filename": "blah.txt",
-        "mime_type": "text/plain",
-        "data": divide_file_into_blocks(Buffer("pasten123456pasten123456"), 6),
-        "block_size": 6,
-        "max_bps": 1024
-    },
-    1234: {
-        "filename": "chrome.jpg",
-        "mime_type": "image/jpeg",
-        "data": divide_file_into_blocks(utils.readFile("data/why-chrome-eats-too-much-ram.jpg"), 1024),
-        "block_size": 1024,
-        "max_bps": 1024*0.5
-    },
-    1001: {
-        "filename": "great.py",
-        "mime_type": "application/x-python",
-        "data": divide_file_into_blocks(utils.readFile("data/some_text_file"), 1024),
-        "block_size": 1024,
-        "max_bps": 1024*0.5
-    },
-    1201: {
-        "filename": "pentest_android.pdf",
-        "mime_type": "application/pdf",
-        "data": divide_file_into_blocks(utils.readFile("data/pentest_android.pdf"), 1024*100),
-        "block_size": 1024*100,
-        "max_bps": 1024*50
-    }
-};
-
-exports.set_servers = function(updates, blocks) {
+exports.initialize = function(updates, blocks) {
     updates_server = updates; 
     blocks_server = blocks;
+
+    console.log("[*] Initializing files list...");
+    for (var fileid in files) {
+        file = files[fileid];
+        if (typeof file.original_file !== "undefined") {
+            file.data = utils.divide_file_into_blocks(utils.readFile(file.original_file), file.block_size)
+        }
+
+        file.signatures = {};
+        for (var block_offset in file.data) {
+            file.signatures[block_offset] = crypto.sign(config.signing_keys.prvKeyObj, file.data[block_offset], block_offset);
+        }
+    }
+    console.log("    Done.");
 };
 
+exports.get_ice_servers = function() {
+    return config.ice_servers;
+}
+
+exports.get_pubkey = function() {
+    return config.signing_keys.pubKeyObj;
+}
 
 exports.handle_open = function(conn, req) {
     file_id = req.query.fileid;
+
     if (undefined == file_id) {
-        console.log("[*] No file id requested.");
+        console.log("[!] No file id requested.");
         conn.send(utils.pack({type: "error", message: "File ID missing."}));
+        conn.close();
         return;
     }
+
     if (!(file_id in files)) {
-        console.log("[*] Requested a non existing file.");
+        console.log("[!] Requested a non existing file.");
         conn.send(utils.pack({type: "error", message: "File does not exist."}));
+        conn.close();
         return;
     }
+
     userid = register(conn, file_id);
 
     users_ids = [];
@@ -89,6 +77,8 @@ exports.handle_open = function(conn, req) {
         file_size: calculate_file_size(files[file_id].data),
         file_name: files[file_id].filename,
         mime_type: files[file_id].mime_type,
+        pubkey: crypto.jsonify_key(config.signing_keys.pubKeyObj),
+        ice_servers: config.ice_servers
     }));
 
     broadcast_state(userid, true);
@@ -106,7 +96,7 @@ exports.handle_message = function(conn, msg) {
     try {
         data = JSON.parse(msg);
     } catch(e) {
-        console.log("[*] handle_message: Could not parse JSON: " + msg);
+        console.log("[!] handle_message: Could not parse JSON: " + msg);
         conn.send(utils.pack({type: 'error', message: 'Could not parse JSON.'}));
         conn.close();
         return;
@@ -117,11 +107,13 @@ exports.handle_message = function(conn, msg) {
     switch (data.type) {
         case 'fresh_block':
             if (undefined == conn.file_id || !(conn.file_id in files)) {
-                console.log("[*] Bad file id");
+                console.log("[!] Bad file id");
                 return;
             }
 
             file_blocks = files[conn.file_id].data;
+            file_signatures = files[conn.file_id].signatures;
+            
             user_nonpending_blocks = data.nonpending_blocks;
             user_pending_blocks = data.pending_blocks;
 
@@ -134,60 +126,61 @@ exports.handle_message = function(conn, msg) {
             block_offset = lst[Math.floor(Math.random() * lst.length)];
 
             if (!(block_offset in file_blocks)) {
-                console.log("Peer asked for invalid block_offset");
+                console.log("[!] Peer asked for invalid block_offset");
                 conn.send(utils.pack({type: 'error', message: 'Invalid block_offset '})); /* maybe catch exception if connection has closed? */
                 conn.close();
+                return;
             }
 
-            console.log("Handing block offset " + block_offset + " for peer");
+            console.log("[*] Handing block offset " + block_offset + " for peer " + conn.id);
             block_data = file_blocks[block_offset];
 
             /* maybe catch exception if connection has closed? */
-            conn.send(utils.pack({type: "block", block_offset: block_offset, length: block_data.length}));
+            conn.send(utils.pack({type: "block", block_offset: block_offset, length: block_data.length, signature: file_signatures[block_offset]}));
             break;
 
         case 'offer':
-            console.log("Sending offer from " + conn.id +  " to " + data.remote_peer_id);
+            console.log("[*] Sending offer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
                 if (remote_user.file_id != conn.file_id) {
-                    console.log("File id mismatch!");
+                    console.log("[!] File id mismatch!");
                     conn.close();
                     return;
                 }
                 remote_user.send(utils.pack({type: 'offer', offer: data.offer, remote_peer_id: conn.id}));
             } catch (e) {
-                console.log("Error sending offer");
+                console.log("[!] Error sending offer");
             }
             break;
 
         case 'answer':
-            console.log("Sending answer from " + conn.id +  " to " + data.remote_peer_id);
+            console.log("[*] Sending answer from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
                 if (remote_user.file_id != conn.file_id) {
-                    console.log("File id mismatch!");
+                    console.log("[!] File id mismatch!");
                     conn.close();
                     return;
                 }
                 remote_user.send(utils.pack({type: 'answer', answer: data.answer, remote_peer_id: conn.id}));
             } catch (e) {
-                console.log("Error sending answer");
+                console.log("[!] Error sending answer");
             }
             break;
 
         case 'candidate':
-            console.log("Sending candidate from " + conn.id +  " to " + data.remote_peer_id);
+            console.log("[*] Sending candidate from " + conn.id +  " to " + data.remote_peer_id);
             try {
                 remote_user = users[data.remote_peer_id];
                 if (remote_user.file_id != conn.file_id) {
-                    console.log("File id mismatch!");
+                    console.log("[!] File id mismatch!");
                     conn.close();
                     return;
                 }
                 remote_user.send(utils.pack({type: 'candidate', candidate: data.candidate, remote_peer_id: conn.id}));
             } catch (e) {
-                console.log("Error sending candidate");
+                console.log("[!] Error sending candidate");
             }
             break;
 
