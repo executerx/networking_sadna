@@ -28,7 +28,7 @@ exports.initialize = function(updates, blocks) {
 
         file.signatures = {};
         for (var block_offset in file.data) {
-            file.signatures[block_offset] = crypto.sign(config.signing_keys.prvKeyObj, file.data[block_offset], block_offset);
+            file.signatures[block_offset] = crypto.sign(config.signing_keys.prvKeyObj, fileid, file.data[block_offset], block_offset);
         }
     }
     console.log("    Done.");

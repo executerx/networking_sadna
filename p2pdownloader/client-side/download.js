@@ -49,10 +49,10 @@ function keys_sorted(dict) {
     return keys;
 }
 
-function verify_block(pubKey, block_data, offset, signature) {
+function verify_block(pubKey, fileid, block_data, offset, signature) {
     var sig = new KJUR.crypto.Signature({alg: 'SHA256withRSA'});
     sig.init(pubKey);
-    sig.updateString(offset.toString() + "|");
+    sig.updateString(fileid.toString() + "|" + offset.toString() + "|");
 
     for (var i in block_data) {
         data = new Uint8Array(block_data[i]);
@@ -260,7 +260,7 @@ function initialize_blocks_data_channel(peer, is_local, blocks_data_channel) {
             }
             if (this.peer.bytes_left_to_read == 0) {
                 if (!(file_blocks[this.peer.pending_block] instanceof Blob)) {
-                    if (!verify_block(pubkey, this.peer.blocks, this.peer.pending_block, this.peer.pending_signature)) {
+                    if (!verify_block(pubkey, file_id, this.peer.blocks, this.peer.pending_block, this.peer.pending_signature)) {
                         log("[!!] Signature does not verify! (block_offset=" + this.peer.pending_block + ", id=" + this.peer.user_id + ")");
                         this.peer.close();
                         return;
