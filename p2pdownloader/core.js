@@ -83,13 +83,13 @@ exports.handle_open = function(conn, req) {
 
     broadcast_state(userid, true);
 
-    console.log(`[*] New client has connected! (id=${userid})`);
+    console.log("[*] New client has connected! (id=" + userid + ")");
 };
 
 exports.handle_close = function(conn) {
     broadcast_state(conn.id, false);
     delete users[conn.id];
-    console.log(`[*] Client disconnected! (id=${conn.id})`);
+    console.log("[*] Client disconnected! (id=" + conn.id + ")");
 };
 
 exports.handle_message = function(conn, msg) {
