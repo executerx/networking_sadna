@@ -1,0 +1,12 @@
+{
+  "name": "p2pdownloader",
+  "version": "0.0.1",
+  "description": "P2P File Downloader Server",
+  "main": "server.js",
+  "dependencies": {
+    "jsrsasign": "*",
+    "express": "*",
+    "express-ws": "*",
+    "connect-static-file": "*",
+  }
+}
